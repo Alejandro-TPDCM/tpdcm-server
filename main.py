@@ -1,6 +1,7 @@
 """
 TPDCM-IA - Trading Platform Deep Claude Machine Intelligence
 EUR/USD Institucional - Prop Firm System
+v1.1 - Endpoint /candles agregado para velas reales en frontend
 """
 import asyncio
 import json
@@ -51,7 +52,7 @@ OANDA_BASE = (
     else 'https://api-fxtrade.oanda.com'
 )
 
-app = FastAPI(title='TPDCM-IA', version='1.0.0')
+app = FastAPI(title='TPDCM-IA', version='1.1.0')
 app.add_middleware(
     CORSMiddleware,
     allow_origins=['*'],
@@ -112,6 +113,10 @@ bt_state = {
     'running':  False,
     'log':      [],
 }
+
+# Cache simple para candles (evita martillar OANDA si el front pide muchas veces)
+_candles_cache = {}
+_CANDLES_CACHE_TTL = {'M5': 60, 'M15': 120, 'H1': 300, 'H4': 600, 'D': 1800}
 
 SCORE_WEIGHTS = {
     'htf_alignment':   18,
@@ -1298,7 +1303,7 @@ async def run_backtesting():
 
 @app.get('/health')
 async def health():
-    return {'status': 'ok', 'version': '1.0', 'pair': 'EUR/USD',
+    return {'status': 'ok', 'version': '1.1', 'pair': 'EUR/USD',
             'trading_paused': state['trading_paused'], 'pause_reason': state['pause_reason'],
             'consecutive_losses': state['consecutive_losses'], 'daily_loss_usd': state['daily_loss_usd'],
             'risk_pct_current': state['risk_pct_current'], 'balance': state['balance'],
@@ -1338,6 +1343,7 @@ async def dashboard():
                     'liq_target': ict.get('liq_target',{}), 'inducement': ict.get('inducement',{}),
                     'displacement': ict.get('displacement',{})},
             'history': state.get('history',[])[-20:], 'open_trades': state.get('open_trades',[]),
+            'active_trades_meta': state.get('active_trades_meta', {}),
             'risk_status': {'trading_paused': state['trading_paused'], 'pause_reason': state['pause_reason'],
                             'consecutive_losses': state['consecutive_losses'],
                             'daily_loss_usd': state['daily_loss_usd'], 'risk_pct_current': state['risk_pct_current']},
@@ -1354,6 +1360,61 @@ async def prices():
         return {'price': price, 'open_trades': ot, 'balance': state['balance']}
     except Exception as e:
         return {'price': 0, 'open_trades': [], 'error': str(e)}
+
+# =============================================================================
+# NUEVO ENDPOINT: /candles - velas reales OANDA para el chart del frontend
+# =============================================================================
+@app.get('/candles')
+async def candles_endpoint(tf: str = 'H1', count: int = 80):
+    """
+    Velas reales del mercado desde OANDA para el chart de la pestaña Operaciones.
+    Soporta granularidades: M5, M15, H1, H4, D
+    Devuelve solo velas completas (sin la actual en formacion).
+    Cachea respuestas para no martillar OANDA.
+    """
+    tf = tf.upper()
+    valid_tf = ('M5', 'M15', 'H1', 'H4', 'D')
+    if tf not in valid_tf:
+        tf = 'H1'
+    count = max(10, min(500, int(count)))
+
+    # Cache check
+    cache_key = f'{tf}_{count}'
+    ttl = _CANDLES_CACHE_TTL.get(tf, 300)
+    cached = _candles_cache.get(cache_key)
+    if cached and (time.time() - cached['ts'] < ttl):
+        return cached['data']
+
+    try:
+        candles_raw = await get_candles(tf, count)
+        result = []
+        for c in candles_raw:
+            if not c.get('complete'):
+                continue
+            try:
+                result.append({
+                    't': c.get('time', ''),
+                    'o': float(c['mid']['o']),
+                    'h': float(c['mid']['h']),
+                    'l': float(c['mid']['l']),
+                    'c': float(c['mid']['c']),
+                    'v': int(c.get('volume', 0)),
+                })
+            except (KeyError, ValueError, TypeError):
+                continue
+        response = {
+            'candles': result,
+            'granularity': tf,
+            'count': len(result),
+            'pair': PAIR,
+            'source': 'oanda',
+            'ts': now_utc().isoformat(),
+        }
+        _candles_cache[cache_key] = {'data': response, 'ts': time.time()}
+        return response
+    except Exception as e:
+        log.error(f'[CANDLES] {e}')
+        return {'candles': [], 'granularity': tf, 'count': 0, 'error': str(e)}
 
 @app.get('/trigger-analysis')
 @app.get('/trigger-report')
@@ -1529,4 +1590,4 @@ async def startup():
                 with open(bt_flag, 'w') as f: f.write(str(time.time()))
             except Exception: pass
     asyncio.create_task(delayed_start())
-    log.info('TPDCM-IA v1.0 - EUR/USD Institucional - Sistema activo')
+    log.info('TPDCM-IA v1.1 - EUR/USD Institucional - Sistema activo (endpoint /candles)')
