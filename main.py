@@ -1,31 +1,18 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-TPDCM-IA v2.0 — Trading Platform Deep Claude Machine Intelligence
+TPDCM-IA v2.1 — Trading Platform Deep Claude Machine Intelligence
 EUR/USD Institucional · Prop Firm System
 ═══════════════════════════════════════════════════════════════════════════════
 
-ARQUITECTURA HIBRIDA INSTITUCIONAL (Fase 1)
-───────────────────────────────────────────
-
-DIVISION DE RESPONSABILIDADES (REGLAS INMUTABLES):
-
-  PYTHON  → autoridad absoluta sobre direccion (BUY/SELL/HOLD)
-          → scoring matematico (100 pts, 10 factores ponderados)
-          → execution, risk, structure detection (ICT/SMC)
-          → backtesting, persistence, audit trail
-
-  CLAUDE  → Institutional Cognitive Layer (NO signal generator)
-          → veto + confidence_multiplier (0.5-1.0)
-          → narrative quality + anomaly interpretation
-          → NUNCA produce action. Si lo hace, se descarta.
-
-  GATE    → combina technical + cognitive con reglas duras
-          → Regla fallback: si Claude cae y score >= 95 -> opera con x0.80
-                            si Claude cae y score < 95  -> HOLD
-
-PERSISTENCE: Railway Volume montado en /data (NO /tmp)
-AUDIT TRAIL: cada decision queda registrada con schema completo
-
+CAMBIOS v2.0 -> v2.1:
+  + Notification Layer (Resend API)
+  + Reporte 7:00 AM ET  - Pre-Londres briefing
+  + Reporte 9:00 AM ET  - NY Open analysis
+  + Notificacion entrada de trade (al abrir orden OANDA)
+  + Notificacion cierre de trade (al detectar cierre)
+  + Alerta de veto cognitivo
+  + Alerta critica (daily loss / modo defensivo / losses consec.)
+  + Endpoint /notify/test, /notify/pre-london-report, /notify/ny-open-report
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -45,7 +32,6 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -66,18 +52,22 @@ AUTO_EXECUTE      = os.environ.get('AUTO_EXECUTE', 'false').lower() == 'true'
 RISK_PCT          = float(os.environ.get('RISK_PCT', '1.0'))
 MIN_CONFIDENCE    = float(os.environ.get('MIN_CONFIDENCE', '0.75'))
 
-# Persistencia (Railway Volume)
 DATA_PATH         = os.environ.get('DATA_VOLUME_PATH', '/data')
 
-# Cognitive Layer config
 COGNITIVE_TIMEOUT_SEC          = float(os.environ.get('COGNITIVE_TIMEOUT_SEC', '30'))
 COGNITIVE_FAILURE_THRESHOLD    = float(os.environ.get('COGNITIVE_FAILURE_THRESHOLD', '0.30'))
 ELITE_SCORE_THRESHOLD          = float(os.environ.get('ELITE_SCORE_THRESHOLD', '95'))
 ELITE_NO_COGNITIVE_PENALTY     = float(os.environ.get('ELITE_NO_COGNITIVE_PENALTY', '0.80'))
 
+# Notification Layer (NUEVO v2.1)
+RESEND_API_KEY        = os.environ.get('RESEND_API_KEY', '')
+NOTIFY_EMAIL_TO       = os.environ.get('NOTIFY_EMAIL_TO', 'tpdcmia@gmail.com')
+NOTIFY_EMAIL_FROM     = os.environ.get('NOTIFY_EMAIL_FROM', 'TPDCM-IA <onboarding@resend.dev>')
+NOTIFICATIONS_ENABLED = os.environ.get('NOTIFICATIONS_ENABLED', 'true').lower() == 'true'
+
 PAIR             = 'EUR_USD'
-SONNET_MODEL     = 'claude-sonnet-4-6'   # Trade-by-trade validation
-OPUS_MODEL       = 'claude-opus-4-7'     # Weekly review (Fase 3)
+SONNET_MODEL     = 'claude-sonnet-4-6'
+OPUS_MODEL       = 'claude-opus-4-7'
 
 SESSION_START_ET = 3
 SESSION_END_ET   = 12
@@ -92,41 +82,21 @@ ADR_MIN          = 0.20
 ATR_MIN_PIPS     = 8
 ATR_MAX_PIPS     = 80
 
-OANDA_BASE = (
-    'https://api-fxpractice.oanda.com'
-    if OANDA_ENV == 'practice'
-    else 'https://api-fxtrade.oanda.com'
-)
+OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
+              else 'https://api-fxtrade.oanda.com')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 2: PERSISTENCIA EN VOLUMEN (Railway Volume /data)
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# Reemplaza el uso de /tmp (que se borra cada redeploy) con almacenamiento real.
-# Estructura:
-#   /data/trades/trade_journal.jsonl       (append-only, 1 trade por linea)
-#   /data/audit/decisions_YYYY-MM.jsonl    (1 decision por linea, por mes)
-#   /data/memory/edge_tracker.json         (memoria viva del sistema)
-#   /data/memory/session_stats.json
-#   /data/memory/adaptive_weights.json
-#   /data/legacy/history.json              (compat con dashboard actual)
-#   /data/legacy/live_trades.json          (compat con dashboard actual)
-#
+# SECCION 2: PERSISTENCIA EN VOLUMEN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _ensure_data_dirs():
-    """Crea la estructura de carpetas en el volumen al arrancar"""
     base = Path(DATA_PATH)
-    dirs = ['trades', 'audit', 'memory', 'legacy', 'backtest', 'cognitive', 'regime']
-    for d in dirs:
-        try:
-            (base / d).mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            log.warning(f'[STORAGE] No se pudo crear {d}: {e}')
+    for d in ['trades', 'audit', 'memory', 'legacy', 'backtest', 'cognitive', 'regime', 'notifications']:
+        try: (base / d).mkdir(parents=True, exist_ok=True)
+        except Exception as e: log.warning(f'[STORAGE] No se pudo crear {d}: {e}')
 
 def storage_write_json(relpath: str, data) -> bool:
-    """Escribe JSON al volumen con file lock."""
     full = Path(DATA_PATH) / relpath
     try:
         full.parent.mkdir(parents=True, exist_ok=True)
@@ -136,20 +106,15 @@ def storage_write_json(relpath: str, data) -> bool:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         return True
     except Exception as e:
-        log.warning(f'[STORAGE-W] {relpath}: {e}')
-        return False
+        log.warning(f'[STORAGE-W] {relpath}: {e}'); return False
 
 def storage_read_json(relpath: str, default=None):
-    """Lee JSON del volumen. Si no existe devuelve default."""
     full = Path(DATA_PATH) / relpath
     try:
-        with open(full, 'r') as f:
-            return json.load(f)
-    except Exception:
-        return default
+        with open(full, 'r') as f: return json.load(f)
+    except Exception: return default
 
 def storage_append_jsonl(relpath: str, record: dict) -> bool:
-    """Append-only: agrega una linea JSON al final del archivo."""
     full = Path(DATA_PATH) / relpath
     try:
         full.parent.mkdir(parents=True, exist_ok=True)
@@ -159,28 +124,17 @@ def storage_append_jsonl(relpath: str, record: dict) -> bool:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         return True
     except Exception as e:
-        log.warning(f'[STORAGE-A] {relpath}: {e}')
-        return False
+        log.warning(f'[STORAGE-A] {relpath}: {e}'); return False
 
 def storage_read_jsonl(relpath: str, limit: int = None) -> List[dict]:
-    """Lee un archivo JSONL completo (o las ultimas N lineas si limit)."""
     full = Path(DATA_PATH) / relpath
     try:
-        with open(full, 'r') as f:
-            lines = f.readlines()
-        if limit:
-            lines = lines[-limit:]
+        with open(full, 'r') as f: lines = f.readlines()
+        if limit: lines = lines[-limit:]
         return [json.loads(l) for l in lines if l.strip()]
-    except Exception:
-        return []
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 3: AUDIT TRAIL (trazabilidad completa de decisiones)
-# ═══════════════════════════════════════════════════════════════════════════════
+    except Exception: return []
 
 def audit_decision(record: dict):
-    """Guarda una decision completa en el audit log mensual."""
     et = datetime.now(ZoneInfo('America/New_York'))
     month_file = f'audit/decisions_{et.strftime("%Y-%m")}.jsonl'
     record['decision_id']    = record.get('decision_id', str(uuid.uuid4()))
@@ -190,116 +144,390 @@ def audit_decision(record: dict):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SECCION 3: NOTIFICATION LAYER (Resend) - NUEVO v2.1
+# ═══════════════════════════════════════════════════════════════════════════════
+
+RESEND_API_URL = 'https://api.resend.com/emails'
+
+EMAIL_BASE_STYLE = """
+<style>
+  body { margin:0; padding:0; background:#070a0d; font-family:'IBM Plex Mono','SF Mono',Consolas,monospace;
+         color:#c4d8cc; line-height:1.6; }
+  .wrap { max-width:640px; margin:0 auto; padding:24px; background:#0c1017; }
+  .header { border-bottom:1px solid rgba(0,232,122,0.2); padding-bottom:12px; margin-bottom:20px; }
+  .logo { font-size:14px; font-weight:700; color:#00e87a; letter-spacing:0.1em; }
+  .logo span { color:#5a7a68; font-weight:400; font-size:11px; margin-left:6px; }
+  h1 { font-size:18px; color:#c4d8cc; margin:0 0 8px 0; font-weight:600; }
+  .sub { color:#5a7a68; font-size:11px; letter-spacing:0.05em; margin-bottom:20px; }
+  .card { background:#111820; border:1px solid rgba(255,255,255,0.07); border-radius:6px;
+          padding:14px 16px; margin-bottom:12px; }
+  .label { font-size:9px; color:#5a7a68; letter-spacing:0.15em; text-transform:uppercase; margin-bottom:6px; }
+  .value { font-size:13px; color:#c4d8cc; }
+  .big { font-size:22px; font-weight:700; }
+  .row { display:flex; justify-content:space-between; padding:5px 0;
+         border-bottom:1px solid rgba(255,255,255,0.04); font-size:12px; }
+  .row:last-child { border-bottom:none; }
+  .k { color:#5a7a68; }
+  .v { color:#c4d8cc; font-weight:600; }
+  .green { color:#00e87a !important; }
+  .red { color:#ff3355 !important; }
+  .gold { color:#f0c040 !important; }
+  .blue { color:#4a9eff !important; }
+  .footer { margin-top:24px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.05);
+            font-size:10px; color:#3a5a48; text-align:center; }
+  .badge { display:inline-block; padding:4px 10px; border-radius:3px; font-size:10px;
+           letter-spacing:0.1em; font-weight:700; }
+  .badge-green { background:rgba(0,232,122,0.15); color:#00e87a; }
+  .badge-red { background:rgba(255,51,85,0.15); color:#ff3355; }
+  .badge-gold { background:rgba(240,192,64,0.12); color:#f0c040; }
+</style>
+"""
+
+def _email_wrapper(title: str, body_html: str) -> str:
+    et = datetime.now(ZoneInfo('America/New_York'))
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8">{EMAIL_BASE_STYLE}</head>
+<body><div class="wrap">
+<div class="header"><div class="logo">TPDCM-IA<span>EUR/USD INSTITUCIONAL · v2.1</span></div></div>
+<h1>{title}</h1>
+<div class="sub">{et.strftime('%A %d %B %Y · %H:%M:%S ET')}</div>
+{body_html}
+<div class="footer">Sistema automatizado · Decision Gate Architecture<br>Python authority + Claude cognitive validation</div>
+</div></body></html>"""
+
+async def send_email(subject: str, html: str) -> bool:
+    if not NOTIFICATIONS_ENABLED:
+        log.info(f'[NOTIFY] disabled - skip: {subject}'); return False
+    if not RESEND_API_KEY:
+        log.warning('[NOTIFY] RESEND_API_KEY no configurada'); return False
+    if not NOTIFY_EMAIL_TO:
+        log.warning('[NOTIFY] NOTIFY_EMAIL_TO no configurada'); return False
+    payload = {'from': NOTIFY_EMAIL_FROM, 'to': [NOTIFY_EMAIL_TO],
+               'subject': subject, 'html': html}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(RESEND_API_URL,
+                                  headers={'Authorization': f'Bearer {RESEND_API_KEY}',
+                                           'Content-Type': 'application/json'},
+                                  json=payload)
+        if r.is_success:
+            email_id = r.json().get('id', '')
+            log.info(f'[NOTIFY] OK "{subject[:60]}" id:{email_id}')
+            storage_append_jsonl('notifications/sent.jsonl', {
+                'ts': datetime.now(timezone.utc).isoformat(),
+                'subject': subject, 'to': NOTIFY_EMAIL_TO,
+                'id': email_id, 'status': 'sent'})
+            return True
+        else:
+            log.warning(f'[NOTIFY] HTTP {r.status_code}: {r.text[:200]}')
+            storage_append_jsonl('notifications/sent.jsonl', {
+                'ts': datetime.now(timezone.utc).isoformat(),
+                'subject': subject, 'status': 'failed',
+                'error': f'HTTP {r.status_code} - {r.text[:150]}'})
+            return False
+    except Exception as e:
+        log.warning(f'[NOTIFY] Exception: {e}'); return False
+
+
+def build_pre_london_report():
+    ict = state.get('last_analysis', {}).get('ict', {})
+    et = datetime.now(ZoneInfo('America/New_York'))
+    today_str = et.strftime('%Y-%m-%d')
+    todays_news = [e for e in HIGH_IMPACT_EVENTS if e.get('date') == today_str]
+    liq = ict.get('liq_levels', {})
+    htf_bias = ict.get('htf_bias', 'neutral')
+    htf_color = 'green' if htf_bias == 'bullish' else 'red' if htf_bias == 'bearish' else 'gold'
+    defensive = state.get('defensive_mode', False)
+    paused = state.get('trading_paused', False)
+    system_status = 'badge-red' if paused else ('badge-gold' if defensive else 'badge-green')
+    system_text = 'PAUSADO' if paused else ('DEFENSIVO' if defensive else 'OPERATIVO')
+    if todays_news:
+        items = "".join(f'<div class="row"><span class="k">⚠️ {e.get("time","")} ET</span>'
+                        f'<span class="v gold">{e.get("currency","")} {e.get("title","")}</span></div>'
+                        for e in todays_news)
+        news_html = f'<div class="card"><div class="label">Noticias High Impact Hoy</div>{items}</div>'
+    else:
+        news_html = '<div class="card"><div class="label">Noticias High Impact Hoy</div><div class="value" style="color:#5a7a68">Sin noticias programadas</div></div>'
+    body = f"""
+<div class="card"><div class="label">Estado del Sistema</div>
+<div style="display:flex;align-items:center;gap:12px;margin-top:4px">
+<span class="badge {system_status}">{system_text}</span>
+<span class="value">Balance: <strong class="green">${state['balance']:,.2f}</strong></span></div></div>
+<div class="card"><div class="label">Mercado EUR/USD</div>
+<div class="row"><span class="k">Precio actual</span><span class="v">{state.get('last_analysis', {}).get('price', 0):.5f}</span></div>
+<div class="row"><span class="k">HTF Bias</span><span class="v {htf_color}">{htf_bias.upper()} ({ict.get('htf_strength', 0)*100:.0f}%)</span></div>
+<div class="row"><span class="k">ATR H1</span><span class="v">{ict.get('atr_pips', 0):.1f} pips</span></div>
+<div class="row"><span class="k">ADR restante</span><span class="v">{ict.get('adr_pct', 0)*100:.0f}%</span></div></div>
+<div class="card"><div class="label">Niveles Institucionales del Día</div>
+<div class="row"><span class="k">PDH (Previous Day High)</span><span class="v gold">{liq.get('pdh', 0):.5f}</span></div>
+<div class="row"><span class="k">PDL (Previous Day Low)</span><span class="v gold">{liq.get('pdl', 0):.5f}</span></div>
+<div class="row"><span class="k">Weekly High</span><span class="v blue">{liq.get('weekly_high', 0):.5f}</span></div>
+<div class="row"><span class="k">Weekly Low</span><span class="v blue">{liq.get('weekly_low', 0):.5f}</span></div></div>
+{news_html}
+<div class="card"><div class="label">Salud del Sistema</div>
+<div class="row"><span class="k">Edge Score</span><span class="v green">{memory.get('edge_score', 100):.0f}/100</span></div>
+<div class="row"><span class="k">Modo defensivo</span><span class="v {'red' if defensive else 'green'}">{ 'ACTIVO' if defensive else 'NO' }</span></div>
+<div class="row"><span class="k">Pérdidas consecutivas</span><span class="v">{state.get('consecutive_losses', 0)}</span></div>
+<div class="row"><span class="k">Riesgo actual / trade</span><span class="v">{state.get('risk_pct_current', 1.0):.2f}%</span></div>
+<div class="row"><span class="k">Cognitive layer</span><span class="v {'red' if cognitive_is_disabled() else 'green'}">{'DEGRADED' if cognitive_is_disabled() else 'HABILITADO'}</span></div>
+<div class="row"><span class="k">Auto Execute</span><span class="v {'green' if AUTO_EXECUTE else 'gold'}">{'ACTIVO' if AUTO_EXECUTE else 'SOLO SEÑAL'}</span></div></div>
+<div class="card"><div class="label">Plan del Día</div>
+<div class="value" style="font-size:11px">
+🕒 <strong>3:00-5:00 AM ET</strong> · Killzone London<br>
+🕗 <strong>8:00-11:00 AM ET</strong> · Killzone NY Open (auto-execute)<br>
+🕓 <strong>11:00-12:00 AM ET</strong> · Killzone NY Late (selectivo)<br>
+🛑 <strong>Friday 14:00 ET</strong> · Cierre forzado fin de semana</div></div>"""
+    subject = f'TPDCM-IA · Briefing 7AM · EUR/USD · {htf_bias.upper()}'
+    return subject, _email_wrapper('🌅 Pre-Londres Briefing', body)
+
+
+def build_ny_open_report():
+    ict = state.get('last_analysis', {}).get('ict', {})
+    dec = state.get('last_decision', {}) or {}
+    sweep = ict.get('sweep', {})
+    action = dec.get('action', 'HOLD')
+    action_color = 'green' if action == 'BUY' else 'red' if action == 'SELL' else 'gold'
+    source = dec.get('source', '')
+    source_explain = {
+        'hold_technical': 'Python decidió HOLD (no hay setup técnico válido)',
+        'validated':      'Setup validado por Claude · Listo para ejecutar',
+        'vetoed':         'Setup técnico válido pero VETADO por Claude',
+        'cognitive_down_elite':     'Claude no disponible · Setup elite operando con penalty',
+        'cognitive_down_non_elite': 'Claude no disponible · Score no elite · HOLD',
+    }.get(source, source)
+    confidence_pct = dec.get('confidence', 0) * 100
+    conf_color = 'green' if confidence_pct >= 70 else 'gold' if confidence_pct >= 50 else 'red'
+    setup_html = ""
+    if sweep.get('detected'):
+        setup_html = f"""<div class="card"><div class="label">Setup Técnico Detectado</div>
+<div class="row"><span class="k">Sweep</span><span class="v">{sweep.get('quality','').upper()} @ {sweep.get('level_type','')}</span></div>
+<div class="row"><span class="k">Nivel sweep</span><span class="v gold">{sweep.get('level',0):.5f}</span></div>
+<div class="row"><span class="k">Mecha %</span><span class="v">{sweep.get('wick_pct',0)*100:.0f}%</span></div>
+<div class="row"><span class="k">BOS</span><span class="v">{ict.get('structure',{}).get('bos_quality','--').upper()}</span></div>
+<div class="row"><span class="k">Displacement</span><span class="v">{ict.get('displacement',{}).get('strength','--').upper()}</span></div>
+<div class="row"><span class="k">Inducement</span><span class="v">{ict.get('inducement',{}).get('quality','--').upper()}</span></div></div>"""
+    cognitive_html = ""
+    if dec.get('narrative'):
+        veto = dec.get('cognitive_veto', False)
+        mult = dec.get('cognitive_multiplier')
+        nq = dec.get('narrative_quality', '--')
+        cognitive_html = f"""<div class="card"><div class="label">Validación Cognitiva (Claude)</div>
+<div class="row"><span class="k">Veto</span><span class="v {'red' if veto else 'green'}">{ 'SI' if veto else 'NO' }</span></div>
+<div class="row"><span class="k">Confidence multiplier</span><span class="v">{mult if mult else '--'}</span></div>
+<div class="row"><span class="k">Calidad narrativa</span><span class="v {'green' if nq=='clean' else 'gold' if nq=='acceptable' else 'red' if nq=='dirty' else ''}">{nq.upper() if nq else '--'}</span></div>
+<div class="row"><span class="k">Régimen</span><span class="v">{dec.get('regime_assessment','--')}</span></div>
+<div style="margin-top:10px;padding:10px;background:rgba(0,0,0,0.3);border-radius:4px;font-size:11px;color:#c4d8cc;font-style:italic">"{dec.get('narrative','--')}"</div></div>"""
+    levels_html = ""
+    if dec.get('sl', 0) > 0 and action != 'HOLD':
+        levels_html = f"""<div class="card"><div class="label">Niveles Operativos Calculados</div>
+<div class="row"><span class="k">Entry</span><span class="v blue">{state.get('last_analysis',{}).get('price',0):.5f}</span></div>
+<div class="row"><span class="k">Stop Loss</span><span class="v red">{dec.get('sl',0):.5f}</span></div>
+<div class="row"><span class="k">TP1 (50% close)</span><span class="v green">{dec.get('tp1',0):.5f}</span></div>
+<div class="row"><span class="k">TP2 (target liquidez)</span><span class="v green">{dec.get('tp2',0):.5f}</span></div>
+<div class="row"><span class="k">RR TP1 / TP2</span><span class="v">{dec.get('rr1',0)} / {dec.get('rr2',0)}</span></div>
+<div class="row"><span class="k">Position size</span><span class="v">{dec.get('pos_size',0):,} units</span></div></div>"""
+    body = f"""<div class="card"><div class="label">Decisión Final</div>
+<div style="display:flex;align-items:center;gap:16px;margin-top:4px">
+<span class="big {action_color}">{action}</span>
+<span class="value">Confianza: <strong class="{conf_color}">{confidence_pct:.0f}%</strong></span>
+<span class="value">Score: <strong class="gold">{dec.get('score',0)}/100</strong></span></div>
+<div style="margin-top:10px;color:#5a7a68;font-size:11px">{source_explain}</div></div>
+{setup_html}{cognitive_html}{levels_html}
+<div class="card"><div class="label">Próximos Análisis Programados</div>
+<div class="value" style="font-size:11px;color:#5a7a68">
+🕙 <strong>10:00 AM ET</strong> · Análisis NY medio (auto-execute habilitado)<br>
+🕛 <strong>Cada hora</strong> · Análisis continuo durante sesión<br>
+🛑 <strong>12:00 PM ET</strong> · Fin de sesión, cierre de trades abiertos</div></div>"""
+    subject = f'TPDCM-IA · NY 9AM · {action} ({confidence_pct:.0f}%) · Score {dec.get("score",0)}/100'
+    return subject, _email_wrapper('🌇 NY Open Analysis', body)
+
+
+def build_trade_open_email(trade_record: dict):
+    action = trade_record.get('action', '')
+    action_color = 'green' if action == 'BUY' else 'red'
+    body = f"""<div class="card"><div class="label">Orden Ejecutada en OANDA Demo</div>
+<div style="display:flex;align-items:center;gap:12px;margin:10px 0">
+<span class="big {action_color}">{action}</span>
+<span class="value">@ <strong>{trade_record.get('entry_price', 0):.5f}</strong></span>
+<span class="badge badge-{('green' if action == 'BUY' else 'red')}">EUR/USD</span></div>
+<div style="font-size:11px;color:#5a7a68">Trade ID: {trade_record.get('trade_id', '--')}</div></div>
+<div class="card"><div class="label">Niveles del Trade</div>
+<div class="row"><span class="k">Entry</span><span class="v blue">{trade_record.get('entry_price',0):.5f}</span></div>
+<div class="row"><span class="k">Stop Loss</span><span class="v red">{trade_record.get('sl',0):.5f}</span></div>
+<div class="row"><span class="k">Take Profit 1 (50% close)</span><span class="v green">{trade_record.get('tp1',0):.5f}</span></div>
+<div class="row"><span class="k">Take Profit 2 (objetivo)</span><span class="v green">{trade_record.get('tp2',0):.5f}</span></div>
+<div class="row"><span class="k">RR TP1 / TP2</span><span class="v">{trade_record.get('rr1',0)} / {trade_record.get('rr2',0)}</span></div>
+<div class="row"><span class="k">Position size</span><span class="v">{trade_record.get('pos_size',0):,} units</span></div></div>
+<div class="card"><div class="label">Contexto Institucional</div>
+<div class="row"><span class="k">Killzone</span><span class="v gold">{trade_record.get('killzone','--')}</span></div>
+<div class="row"><span class="k">HTF Bias</span><span class="v">{trade_record.get('htf_bias','--').upper()}</span></div>
+<div class="row"><span class="k">Score ICT</span><span class="v gold">{trade_record.get('score',0)}/100</span></div>
+<div class="row"><span class="k">Confianza final</span><span class="v green">{trade_record.get('confidence',0)*100:.0f}%</span></div></div>
+<div class="card"><div class="label">Razón del Decision Gate</div>
+<div style="font-style:italic;font-size:11px;line-height:1.6;color:#c4d8cc;padding:10px;background:rgba(0,0,0,0.3);border-radius:4px">
+"{trade_record.get('narrative') or trade_record.get('ceo_reason','--')}"</div></div>
+<div class="card"><div class="label">Gestión Programada</div>
+<div class="value" style="font-size:11px;color:#5a7a68">
+✓ Cierre 50% al alcanzar TP1<br>
+✓ SL movido a Break-Even tras BOS post-TP1<br>
+✓ Cierre forzado fuera de sesión / Friday 14:00 ET<br>
+✓ Monitor cada 5 minutos</div></div>"""
+    emoji = '🟢' if action == 'BUY' else '🔴'
+    subject = f'{emoji} TPDCM-IA · TRADE OPEN · {action} EUR/USD @ {trade_record.get("entry_price",0):.5f}'
+    return subject, _email_wrapper(f'{emoji} Trade Abierto', body)
+
+
+def build_trade_close_email(trade: dict, outcome: str, pnl: float, gestion: list):
+    pnl_color = 'green' if pnl > 0 else 'red' if pnl < 0 else 'gold'
+    outcome_color = {'TP':'green','TP2':'green','SL':'red','BE':'gold','TIMEOUT':'gold'}.get(outcome,'gold')
+    outcome_emoji = {'TP':'✅','TP2':'🎯','SL':'❌','BE':'⚖️','TIMEOUT':'⏱️'}.get(outcome,'•')
+    outcome_label = {
+        'TP':'Take Profit 1 alcanzado','TP2':'Take Profit 2 (objetivo final) alcanzado',
+        'SL':'Stop Loss hit','BE':'Cerrado en Break-Even','TIMEOUT':'Timeout (25 velas)',
+    }.get(outcome, outcome)
+    gestion_html = ""
+    if gestion:
+        items = "".join(f'<div style="padding:4px 0;font-size:11px">✓ {g}</div>' for g in gestion)
+        gestion_html = f'<div class="card"><div class="label">Gestión Aplicada</div>{items}</div>'
+    body = f"""<div class="card"><div class="label">Resultado del Trade</div>
+<div style="display:flex;align-items:center;gap:14px;margin:10px 0">
+<span style="font-size:32px">{outcome_emoji}</span>
+<div><div class="big {outcome_color}">{outcome}</div>
+<div style="font-size:11px;color:#5a7a68;margin-top:2px">{outcome_label}</div></div>
+<div style="margin-left:auto;text-align:right">
+<div class="big {pnl_color}">{('+' if pnl > 0 else '')}${pnl:,.2f}</div>
+<div style="font-size:10px;color:#5a7a68">P&L Final</div></div></div></div>
+<div class="card"><div class="label">Detalles del Trade</div>
+<div class="row"><span class="k">Trade ID</span><span class="v" style="font-size:10px">{trade.get('trade_id','--')}</span></div>
+<div class="row"><span class="k">Tipo</span><span class="v {'green' if trade.get('action')=='BUY' else 'red'}">{trade.get('action','--')}</span></div>
+<div class="row"><span class="k">Entry</span><span class="v">{trade.get('entry_price',0):.5f}</span></div>
+<div class="row"><span class="k">SL programado</span><span class="v red">{trade.get('sl',0):.5f}</span></div>
+<div class="row"><span class="k">TP1 / TP2</span><span class="v">{trade.get('tp1',0):.5f} / {trade.get('tp2',0):.5f}</span></div>
+<div class="row"><span class="k">Hora apertura</span><span class="v">{trade.get('time','--')}</span></div>
+<div class="row"><span class="k">Hora cierre</span><span class="v">{datetime.now(ZoneInfo('America/New_York')).strftime('%H:%M ET')}</span></div>
+<div class="row"><span class="k">Killzone</span><span class="v gold">{trade.get('killzone','--')}</span></div></div>
+{gestion_html}
+<div class="card"><div class="label">Estado del Sistema Post-Trade</div>
+<div class="row"><span class="k">Balance actualizado</span><span class="v green">${state.get('balance', 0):,.2f}</span></div>
+<div class="row"><span class="k">Edge score</span><span class="v">{memory.get('edge_score', 100):.0f}/100</span></div>
+<div class="row"><span class="k">Pérdidas consecutivas</span><span class="v {'red' if state.get('consecutive_losses', 0) >= 2 else ''}">{state.get('consecutive_losses', 0)}</span></div>
+<div class="row"><span class="k">Modo defensivo</span><span class="v {'red' if state.get('defensive_mode') else 'green'}">{ 'ACTIVO' if state.get('defensive_mode') else 'NO' }</span></div></div>"""
+    subject = f'{outcome_emoji} TPDCM-IA · {outcome} · {("+" if pnl > 0 else "")}${pnl:,.0f} · EUR/USD'
+    return subject, _email_wrapper(f'{outcome_emoji} Trade Cerrado · {outcome}', body)
+
+
+def build_cognitive_veto_email(decision: dict):
+    technical_action = decision.get('technical_action_that_would_have_been', '--')
+    technical_conf = decision.get('technical_confidence_pre_veto', 0)
+    anomalies = decision.get('anomalies', [])
+    anomalies_html = ""
+    if anomalies:
+        items = "".join(f'<div style="padding:4px 0;font-size:11px;color:#f0c040">⚠️ {a}</div>' for a in anomalies)
+        anomalies_html = f'<div class="card"><div class="label">Anomalías Detectadas</div>{items}</div>'
+    body = f"""<div class="card"><div class="label">Setup Vetado</div>
+<div style="margin:10px 0"><span class="big gold">🟡 VETO COGNITIVO</span></div>
+<div style="font-size:11px;color:#5a7a68">Python detectó setup técnico válido, pero Claude lo rechazó por incoherencia institucional.<br>Esta es la <strong>capa de protección cognitiva</strong> funcionando correctamente.</div></div>
+<div class="card"><div class="label">Setup Técnico que se Iba a Tomar</div>
+<div class="row"><span class="k">Acción</span><span class="v {'green' if technical_action == 'BUY' else 'red'}">{technical_action}</span></div>
+<div class="row"><span class="k">Confianza técnica</span><span class="v">{technical_conf*100:.0f}%</span></div>
+<div class="row"><span class="k">Score ICT</span><span class="v gold">{decision.get('score',0)}/100</span></div>
+<div class="row"><span class="k">Killzone</span><span class="v">{decision.get('killzone','--')}</span></div></div>
+<div class="card"><div class="label">Razón del Veto (Claude)</div>
+<div style="font-style:italic;font-size:12px;line-height:1.7;padding:14px;background:rgba(240,192,64,0.08);border-left:3px solid #f0c040;border-radius:4px;color:#c4d8cc">
+"{decision.get('reason','--')}"</div></div>
+<div class="card"><div class="label">Análisis Contextual</div>
+<div class="row"><span class="k">Calidad narrativa</span><span class="v red">{decision.get('narrative_quality','--').upper() if decision.get('narrative_quality') else '--'}</span></div>
+<div class="row"><span class="k">Régimen detectado</span><span class="v">{decision.get('regime_assessment','--')}</span></div>
+<div class="row"><span class="k">Multiplier aplicado</span><span class="v">{decision.get('cognitive_multiplier','--')}</span></div></div>
+{anomalies_html}"""
+    subject = f'🟡 TPDCM-IA · VETO COGNITIVO · {technical_action} rechazado'
+    return subject, _email_wrapper('🟡 Cognitive Veto', body)
+
+
+def build_critical_alert_email(alert_type: str, message: str, details: dict):
+    body = f"""<div class="card" style="border-color:rgba(255,51,85,0.3)">
+<div class="label" style="color:#ff3355">⚠️ Alerta Crítica</div>
+<div style="margin:10px 0"><span class="big red">{alert_type}</span></div>
+<div style="font-size:12px;color:#c4d8cc;line-height:1.6;padding:10px;background:rgba(255,51,85,0.05);border-radius:4px;border-left:3px solid #ff3355">{message}</div></div>
+<div class="card"><div class="label">Detalles</div>
+{"".join(f'<div class="row"><span class="k">{k}</span><span class="v">{v}</span></div>' for k, v in details.items())}</div>
+<div class="card"><div class="label">Estado del Sistema</div>
+<div class="row"><span class="k">Trading pausado</span><span class="v {'red' if state.get('trading_paused') else 'green'}">{ 'SI' if state.get('trading_paused') else 'NO' }</span></div>
+<div class="row"><span class="k">Pérdidas consecutivas</span><span class="v">{state.get('consecutive_losses', 0)}</span></div>
+<div class="row"><span class="k">Pérdida diaria USD</span><span class="v red">${state.get('daily_loss_usd', 0):,.2f}</span></div>
+<div class="row"><span class="k">Balance actual</span><span class="v">${state.get('balance', 0):,.2f}</span></div></div>"""
+    subject = f'⚠️ TPDCM-IA · CRÍTICO · {alert_type}'
+    return subject, _email_wrapper(f'⚠️ {alert_type}', body)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.0.0')
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=['*'],
-    allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
-)
+app = FastAPI(title='TPDCM-IA', version='2.1.0')
+app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
+                   allow_methods=['*'], allow_headers=['*'])
 
 state = {
-    'balance':            0.0,
-    'open_trades':        [],
-    'last_analysis':      None,
-    'last_decision':      None,
-    'last_update':        None,
-    'history':            storage_read_json('legacy/history.json', []),
-    'live_trades':        storage_read_json('legacy/live_trades.json', []),
-    'daily_loss_usd':     0.0,
-    'daily_loss_date':    None,
-    'consecutive_losses': 0,
-    'risk_pct_current':   RISK_PCT,
-    'trading_paused':     False,
-    'pause_reason':       '',
-    'active_trades_meta': {},
-    'defensive_mode':     False,
-    'defensive_reason':   '',
+    'balance': 0.0, 'open_trades': [], 'last_analysis': None,
+    'last_decision': None, 'last_update': None,
+    'history': storage_read_json('legacy/history.json', []),
+    'live_trades': storage_read_json('legacy/live_trades.json', []),
+    'daily_loss_usd': 0.0, 'daily_loss_date': None, 'consecutive_losses': 0,
+    'risk_pct_current': RISK_PCT, 'trading_paused': False, 'pause_reason': '',
+    'active_trades_meta': {}, 'defensive_mode': False, 'defensive_reason': '',
 }
 
 memory = storage_read_json('memory/edge_tracker.json', {
-    'recent_trades':      [],
-    'session_stats':      {},
-    'sweep_quality_hist': [],
-    'edge_score':         100.0,
-    'last_updated':       None,
+    'recent_trades': [], 'session_stats': {}, 'sweep_quality_hist': [],
+    'edge_score': 100.0, 'last_updated': None,
 })
 
-bt_state = {
-    'trades':   [],
-    'summary':  None,
-    'last_run': None,
-    'running':  False,
-    'log':      [],
-}
-
-# Cache de velas para no martillar OANDA
+bt_state = {'trades': [], 'summary': None, 'last_run': None, 'running': False, 'log': []}
 _candles_cache = {}
 _CANDLES_CACHE_TTL = {'M5': 60, 'M15': 120, 'H1': 300, 'H4': 600, 'D': 1800}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 5: SCORING ENGINE + PESOS ADAPTATIVOS
+# SECCION 5: SCORING WEIGHTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 SCORE_WEIGHTS = storage_read_json('memory/adaptive_weights.json', {
-    'htf_alignment':   18,
-    'sweep_quality':   16,
-    'displacement':    15,
-    'inducement':      12,
-    'bos_quality':     10,
-    'fvg_ob_quality':  10,
-    'session_quality':  8,
-    'adr_remaining':    5,
-    'volatility':       4,
-    'consolidation':    2,
+    'htf_alignment': 18, 'sweep_quality': 16, 'displacement': 15,
+    'inducement': 12, 'bos_quality': 10, 'fvg_ob_quality': 10,
+    'session_quality': 8, 'adr_remaining': 5, 'volatility': 4, 'consolidation': 2,
 })
 
 def adjust_weights(trade_log):
     global SCORE_WEIGHTS
-    if len(trade_log) < 10:
-        return
-    failures = defaultdict(int)
-    sl_count = 0
+    if len(trade_log) < 10: return
+    failures = defaultdict(int); sl_count = 0
     for t in trade_log[-30:]:
         if t.get('outcome') in ('SL', 'BE'):
             sl_count += 1
-            for f in t.get('failure_factors', []):
-                failures[f] += 1
-    if sl_count < 3:
-        return
+            for f in t.get('failure_factors', []): failures[f] += 1
+    if sl_count < 3: return
     for factor, count in failures.items():
         if factor in SCORE_WEIGHTS and count / sl_count > 0.5:
             SCORE_WEIGHTS[factor] = min(SCORE_WEIGHTS[factor] * 1.25, SCORE_WEIGHTS[factor] + 3)
     total = sum(SCORE_WEIGHTS.values())
     if total != 100:
         scale = 100 / total
-        for k in SCORE_WEIGHTS:
-            SCORE_WEIGHTS[k] = round(SCORE_WEIGHTS[k] * scale, 1)
+        for k in SCORE_WEIGHTS: SCORE_WEIGHTS[k] = round(SCORE_WEIGHTS[k] * scale, 1)
     storage_write_json('memory/adaptive_weights.json', SCORE_WEIGHTS)
-    log.info(f'[LEARN] Pesos ajustados tras {len(trade_log)} trades')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 6: UTILIDADES DE TIEMPO / SESION / NOTICIAS
+# SECCION 6: TIEMPO / SESION / NOTICIAS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def now_et():
-    return datetime.now(ZoneInfo('America/New_York'))
-
-def now_utc():
-    return datetime.now(timezone.utc)
+def now_et():  return datetime.now(ZoneInfo('America/New_York'))
+def now_utc(): return datetime.now(timezone.utc)
 
 def is_session():
     et = now_et()
-    if et.weekday() == 6:
-        return False
-    if et.weekday() == 4 and et.hour >= FRIDAY_CLOSE_ET:
-        return False
+    if et.weekday() == 6: return False
+    if et.weekday() == 4 and et.hour >= FRIDAY_CLOSE_ET: return False
     return SESSION_START_ET <= et.hour < SESSION_END_ET
 
 def get_killzone(hour):
@@ -360,33 +588,25 @@ HIGH_IMPACT_EVENTS = [
 
 async def fetch_ff_calendar():
     try:
-        url = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json'
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(url)
+            r = await client.get('https://nfs.faireconomy.media/ff_calendar_thisweek.json')
             if r.is_success:
-                return [
-                    e for e in r.json()
-                    if e.get('impact', '').lower() == 'high'
-                    and e.get('currency', '').upper() in ('USD', 'EUR')
-                ]
-    except Exception:
-        pass
+                return [e for e in r.json() if e.get('impact', '').lower() == 'high'
+                        and e.get('currency', '').upper() in ('USD', 'EUR')]
+    except Exception: pass
     return []
 
 def is_news_blocked(candle_dt, events):
     for evt in events:
         try:
             dt_str = f"{evt.get('date','')} {evt.get('time','')}"
-            try:
-                evt_dt = datetime.strptime(dt_str, '%Y-%m-%d %H:%M')
-            except Exception:
-                continue
+            try: evt_dt = datetime.strptime(dt_str, '%Y-%m-%d %H:%M')
+            except Exception: continue
             naive = candle_dt.replace(tzinfo=None)
-            diff  = (evt_dt - naive).total_seconds() / 60
+            diff = (evt_dt - naive).total_seconds() / 60
             if -NEWS_AFTER <= diff <= NEWS_BEFORE:
                 return True, f"{evt.get('currency','')} {evt.get('title','')} ({diff:.0f}min)"
-        except Exception:
-            continue
+        except Exception: continue
     return False, ''
 
 
@@ -395,27 +615,21 @@ def is_news_blocked(candle_dt, events):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 async def oanda_get(path):
-    url = f'{OANDA_BASE}{path}'
     headers = {'Authorization': f'Bearer {OANDA_TOKEN}'}
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get(url, headers=headers)
-        r.raise_for_status()
+        r = await client.get(f'{OANDA_BASE}{path}', headers=headers); r.raise_for_status()
         return r.json()
 
 async def oanda_post(path, body):
-    url = f'{OANDA_BASE}{path}'
     headers = {'Authorization': f'Bearer {OANDA_TOKEN}', 'Content-Type': 'application/json'}
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(url, headers=headers, json=body)
-        r.raise_for_status()
+        r = await client.post(f'{OANDA_BASE}{path}', headers=headers, json=body); r.raise_for_status()
         return r.json()
 
 async def oanda_put(path, body):
-    url = f'{OANDA_BASE}{path}'
     headers = {'Authorization': f'Bearer {OANDA_TOKEN}', 'Content-Type': 'application/json'}
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.put(url, headers=headers, json=body)
-        r.raise_for_status()
+        r = await client.put(f'{OANDA_BASE}{path}', headers=headers, json=body); r.raise_for_status()
         return r.json()
 
 async def get_candles(granularity='H1', count=100):
@@ -424,9 +638,7 @@ async def get_candles(granularity='H1', count=100):
 
 async def get_candles_to(granularity='H1', count=500, to_dt=None):
     path = f'/v3/instruments/{PAIR}/candles?granularity={granularity}&count={count}&price=M'
-    if to_dt:
-        ts = to_dt.split('.')[0] + 'Z'
-        path += f'&to={ts}'
+    if to_dt: path += f'&to={to_dt.split(".")[0]}Z'
     data = await oanda_get(path)
     return data.get('candles', [])
 
@@ -446,7 +658,7 @@ async def get_price():
 async def place_order(units, sl, tp, action):
     u = str(-abs(units)) if action == 'SELL' else str(abs(units))
     order = {'type': 'MARKET', 'instrument': PAIR, 'units': u, 'timeInForce': 'FOK'}
-    if sl > 0: order['stopLossOnFill']   = {'price': f'{sl:.5f}'}
+    if sl > 0: order['stopLossOnFill'] = {'price': f'{sl:.5f}'}
     if tp > 0: order['takeProfitOnFill'] = {'price': f'{tp:.5f}'}
     return await oanda_post(f'/v3/accounts/{OANDA_ACCOUNT}/orders', {'order': order})
 
@@ -455,29 +667,24 @@ async def close_trade(trade_id, partial=None):
     return await oanda_put(f'/v3/accounts/{OANDA_ACCOUNT}/trades/{trade_id}/close', body)
 
 async def modify_sl(trade_id, new_sl):
-    return await oanda_put(
-        f'/v3/accounts/{OANDA_ACCOUNT}/trades/{trade_id}/orders',
-        {'stopLoss': {'price': f'{new_sl:.5f}', 'timeInForce': 'GTC'}}
-    )
+    return await oanda_put(f'/v3/accounts/{OANDA_ACCOUNT}/trades/{trade_id}/orders',
+                           {'stopLoss': {'price': f'{new_sl:.5f}', 'timeInForce': 'GTC'}})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 8: TECHNICAL ENGINE (ICT/SMC Detection)
+# SECCION 8: TECHNICAL ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def compute_atr(candles, period=14):
-    if len(candles) < period:
-        return 0.0010
-    trs = [float(c['mid']['h']) - float(c['mid']['l']) for c in candles[-period:]]
-    return sum(trs) / len(trs)
+    if len(candles) < period: return 0.0010
+    return sum(float(c['mid']['h']) - float(c['mid']['l']) for c in candles[-period:]) / period
 
 def identify_liquidity_levels(h1_window, d1=None):
     levels = {'pdh': 0.0, 'pdl': 0.0, 'weekly_high': 0.0, 'weekly_low': 0.0,
               'h4_eqh': [], 'h4_eql': [], 'swing_highs': [], 'swing_lows': []}
     if not h1_window: return levels
     if d1 and len(d1) >= 2:
-        levels['pdh'] = float(d1[-2]['mid']['h'])
-        levels['pdl'] = float(d1[-2]['mid']['l'])
+        levels['pdh'] = float(d1[-2]['mid']['h']); levels['pdl'] = float(d1[-2]['mid']['l'])
     elif len(h1_window) >= 48:
         prev = h1_window[-48:-24]
         levels['pdh'] = max(float(c['mid']['h']) for c in prev)
@@ -499,36 +706,31 @@ def identify_liquidity_levels(h1_window, d1=None):
 def detect_htf_bias(d1=None, h1=None):
     if d1 and len(d1) >= 5:
         closes = [float(c['mid']['c']) for c in d1[-5:]]
-        bias   = 'bullish' if closes[-1] > closes[0] else 'bearish'
+        bias = 'bullish' if closes[-1] > closes[0] else 'bearish'
         strength = min(1.0, abs(closes[-1] - closes[0]) / closes[0] * 100)
         return bias, round(strength, 2)
     if h1 and len(h1) >= 20:
         closes = [float(c['mid']['c']) for c in h1[-20:]]
-        ema_f  = sum(closes[-5:]) / 5
-        ema_s  = sum(closes) / len(closes)
-        bias   = 'bullish' if ema_f > ema_s else 'bearish'
-        diff   = abs(ema_f - ema_s) / ema_s * 100
-        return bias, round(min(1.0, diff * 10), 2)
+        ema_f = sum(closes[-5:]) / 5; ema_s = sum(closes) / len(closes)
+        bias = 'bullish' if ema_f > ema_s else 'bearish'
+        return bias, round(min(1.0, abs(ema_f - ema_s) / ema_s * 100 * 10), 2)
     return 'neutral', 0.3
 
 def detect_inducement(candles, lookback=12):
     if len(candles) < lookback: return False, 'none'
     window = candles[-lookback:]
-    highs  = [float(c['mid']['h']) for c in window]
-    lows   = [float(c['mid']['l']) for c in window]
-    atr    = compute_atr(candles)
-    rng    = max(highs) - min(lows)
+    highs = [float(c['mid']['h']) for c in window]; lows = [float(c['mid']['l']) for c in window]
+    atr = compute_atr(candles); rng = max(highs) - min(lows)
     compressed = rng < atr * lookback * 0.35
-    p70h   = sorted(highs)[int(len(highs) * 0.70)]
-    p30l   = sorted(lows)[int(len(lows)  * 0.30)]
+    p70h = sorted(highs)[int(len(highs) * 0.70)]; p30l = sorted(lows)[int(len(lows) * 0.30)]
     false_breaks = 0
     for c in window[1:]:
         h = float(c['mid']['h']); l = float(c['mid']['l']); cl = float(c['mid']['c'])
         if h > p70h and cl < p70h: false_breaks += 1
         if l < p30l and cl > p30l: false_breaks += 1
-    tol  = atr * 0.3
+    tol = atr * 0.3
     eq_h = sum(1 for i in range(len(highs)) for j in range(i+1, len(highs)) if abs(highs[i]-highs[j]) < tol)
-    eq_l = sum(1 for i in range(len(lows))  for j in range(i+1, len(lows))  if abs(lows[i]-lows[j])   < tol)
+    eq_l = sum(1 for i in range(len(lows))  for j in range(i+1, len(lows))  if abs(lows[i]-lows[j])  < tol)
     score = (2 if compressed else 0) + min(3, false_breaks) + (2 if (eq_h >= 2 or eq_l >= 2) else 0)
     if score >= 5: return True, 'strong'
     if score >= 3: return True, 'medium'
@@ -540,8 +742,7 @@ def detect_sweep(candles, levels, atr):
     c = candles[-1]
     ch = float(c['mid']['h']); cl = float(c['mid']['l'])
     co = float(c['mid']['o']); cc = float(c['mid']['c'])
-    rng  = max(ch - cl, 0.00001)
-    buf  = atr * 0.15
+    rng = max(ch - cl, 0.00001); buf = atr * 0.15
     bear = []; bull = []
     if levels.get('pdh', 0) > 0:         bear.append(('PDH',         levels['pdh']))
     if levels.get('weekly_high', 0) > 0: bear.append(('WEEKLY_HIGH', levels['weekly_high']))
@@ -580,14 +781,12 @@ def detect_displacement(candles, action, atr):
     hits = []
     for c in candles[-3:]:
         o = float(c['mid']['o']); cl = float(c['mid']['c'])
-        h = float(c['mid']['h']); l  = float(c['mid']['l'])
-        rng  = max(h - l, 0.00001)
-        body = abs(cl - o); bp = body / rng
+        h = float(c['mid']['h']); l = float(c['mid']['l'])
+        rng = max(h - l, 0.00001); body = abs(cl - o); bp = body / rng
         ok = (action == 'SELL' and cl < o) or (action == 'BUY' and cl > o)
         if ok and bp >= 0.55: hits.append({'body': body, 'bp': bp})
     if not hits: return False, 'none', {}
-    best  = max(hits, key=lambda x: x['bp'])
-    total = sum(h['body'] for h in hits)
+    best = max(hits, key=lambda x: x['bp']); total = sum(h['body'] for h in hits)
     if len(hits) >= 2 and best['bp'] >= 0.65: strength = 'strong'
     elif best['bp'] >= 0.60 or total >= atr * 0.7: strength = 'medium'
     else: strength = 'weak'
@@ -596,8 +795,8 @@ def detect_displacement(candles, action, atr):
 def detect_bos(candles, action, atr):
     if len(candles) < 15: return False, 'none', 0.0
     recent = candles[-15:]
-    highs  = [float(c['mid']['h']) for c in recent]
-    lows   = [float(c['mid']['l']) for c in recent]
+    highs = [float(c['mid']['h']) for c in recent]
+    lows  = [float(c['mid']['l']) for c in recent]
     lc = float(recent[-1]['mid']['c']); lo = float(recent[-1]['mid']['o'])
     lrng = max(float(recent[-1]['mid']['h']) - float(recent[-1]['mid']['l']), 0.00001)
     lbody = abs(lc - lo) / lrng
@@ -623,7 +822,7 @@ def detect_fvg_ob(candles, action, atr):
     result = {'ob': None, 'fvg': None, 'entry_zone': {'high': 0, 'low': 0}, 'valid': False}
     if len(candles) < 8: return result
     min_fvg = atr * 0.15
-    recent  = candles[-8:]
+    recent = candles[-8:]
     for i in range(len(recent) - 3):
         c1h = float(recent[i]['mid']['h']); c1l = float(recent[i]['mid']['l'])
         c3h = float(recent[i+2]['mid']['h']); c3l = float(recent[i+2]['mid']['l'])
@@ -634,8 +833,7 @@ def detect_fvg_ob(candles, action, atr):
                                  'size': round(gap, 5), 'type': 'bull',
                                  'quality': 'strong' if gap >= atr * 0.3 else 'medium'}
                 result['entry_zone'] = {'high': round(c3l, 5), 'low': round(c1h, 5)}
-                result['valid'] = True
-                break
+                result['valid'] = True; break
         elif action == 'SELL' and c3h < c1l:
             gap = c1l - c3h
             if gap >= min_fvg:
@@ -643,8 +841,7 @@ def detect_fvg_ob(candles, action, atr):
                                  'size': round(gap, 5), 'type': 'bear',
                                  'quality': 'strong' if gap >= atr * 0.3 else 'medium'}
                 result['entry_zone'] = {'high': round(c1l, 5), 'low': round(c3h, 5)}
-                result['valid'] = True
-                break
+                result['valid'] = True; break
     for i in range(len(recent) - 3, 0, -1):
         cv = recent[i]
         co = float(cv['mid']['o']); cc_v = float(cv['mid']['c'])
@@ -669,23 +866,20 @@ def compute_liquidity_target(action, levels, price, atr):
             if val > 0 and val < price and price - val >= atr * 0.5:
                 targets.append((name, val, price - val))
         for v in levels.get('h4_eql', []):
-            if v < price and price - v >= atr * 0.5:
-                targets.append(('H4_EQL', v, price - v))
+            if v < price and price - v >= atr * 0.5: targets.append(('H4_EQL', v, price - v))
     else:
         for name, val in [('PDH', levels.get('pdh', 0)), ('WEEKLY_HIGH', levels.get('weekly_high', 0))]:
             if val > 0 and val > price and val - price >= atr * 0.5:
                 targets.append((name, val, val - price))
         for v in levels.get('h4_eqh', []):
-            if v > price and v - price >= atr * 0.5:
-                targets.append(('H4_EQH', v, v - price))
+            if v > price and v - price >= atr * 0.5: targets.append(('H4_EQH', v, v - price))
     if not targets: return 0.0, 'NONE', 0.0
-    targets.sort(key=lambda x: x[2])
-    best = targets[0]
+    targets.sort(key=lambda x: x[2]); best = targets[0]
     return best[1], best[0], round(best[2] / atr, 1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 9: SCORING ENGINE (100 pts, 10 factores)
+# SECCION 9: SCORING ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def compute_score(htf_bias, htf_strength, sweep, inducement, disp_strength, bos_data, fvg_ob,
@@ -733,10 +927,10 @@ def compute_score(htf_bias, htf_strength, sweep, inducement, disp_strength, bos_
     pts = W['consolidation'] if consol_ok else 0
     score += pts; factors['consolidation'] = {'pts': round(pts,1), 'max': W['consolidation'], 'tag': 'OK' if consol_ok else 'rango muerto'}
     if not has_target: score *= 0.70
-    min_req    = MIN_SCORE + (10 if state.get('defensive_mode') else 0)
+    min_req = MIN_SCORE + (10 if state.get('defensive_mode') else 0)
     executable = score >= min_req
     confidence = round(min(0.95, max(0.50, 0.55 + (score - 50) / 150)), 2)
-    reasons    = [f"{k}: {v['pts']:.0f}/{v['max']:.0f} ({v['tag']})" for k, v in factors.items()]
+    reasons = [f"{k}: {v['pts']:.0f}/{v['max']:.0f} ({v['tag']})" for k, v in factors.items()]
     return {'total': round(score,1), 'executable': executable, 'confidence': confidence,
             'factors': factors, 'reasons': reasons, 'action': action}
 
@@ -763,12 +957,10 @@ def compute_levels(sweep, fvg_ob, target_level, price, balance, risk_pct, atr):
             'entry_zone': fvg_ob.get('entry_zone', {'high': 0, 'low': 0})}
 
 def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None):
-    """Pipeline tecnico determinístico. Output: technical decision ANTES de Claude."""
     if len(h1) < 30:
         return {'sweep': {'detected': False},
                 'score': {'total': 0, 'executable': False, 'confidence': 0, 'factors': {},
-                          'reasons': ['Velas insuficientes'], 'action': None},
-                'levels': None}
+                          'reasons': ['Velas insuficientes'], 'action': None}, 'levels': None}
     atr = compute_atr(h1); atr_pips = atr * 10000
     h = hour if hour is not None else now_et().hour
     kill = get_killzone(h)
@@ -782,7 +974,8 @@ def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None):
                           'reasons': ['Sin sweep institucional detectado'], 'action': None},
                 'levels': None, 'htf_bias': htf_bias, 'htf_strength': htf_str,
                 'liq_levels': levels, 'atr': round(atr,5), 'atr_pips': round(atr_pips,1),
-                'killzone': kill, 'adr_pct': 0.5, 'inducement': {'found': False, 'quality': 'none'},
+                'killzone': kill, 'adr_pct': 0.5,
+                'inducement': {'found': False, 'quality': 'none'},
                 'displacement': {'found': False, 'strength': 'none'},
                 'structure': {'bos': False, 'bos_quality': 'none', 'bos_level': 0.0},
                 'fvg_ob': {'ob': None, 'fvg': None, 'entry_zone': {'high': 0, 'low': 0}, 'valid': False},
@@ -815,19 +1008,11 @@ def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 10: COGNITIVE LAYER (Claude Sonnet - VALIDATION ONLY, NO SIGNAL GEN)
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# REGLA ABSOLUTA: Claude NUNCA produce action (BUY/SELL/HOLD).
-# Solo emite: veto + confidence_multiplier + narrative + anomalies.
-# Si el JSON contiene 'action', Pydantic lo rechaza (extra='forbid').
-#
+# SECCION 10: COGNITIVE LAYER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class CognitiveValidation(BaseModel):
-    """Schema estricto del output de Claude. Cualquier campo extra (incluido 'action') es rechazado."""
     model_config = ConfigDict(extra='forbid')
-
     veto: bool
     veto_reason: Optional[str] = Field(None, max_length=200)
     confidence_multiplier: float = Field(ge=0.5, le=1.0)
@@ -843,33 +1028,23 @@ class CognitiveValidation(BaseModel):
             raise ValueError('veto=true requires veto_reason')
         return v
 
-# Circuit breaker para detectar si Claude esta degradado
-_cognitive_health = {
-    'calls':    [],   # list de timestamps de llamadas
-    'failures': [],   # list de timestamps de fallos
-    'disabled_until': None,
-}
+_cognitive_health = {'calls': [], 'failures': [], 'disabled_until': None}
 
 def cognitive_record(success: bool):
-    """Registra exito/fallo de llamada a Claude para circuit breaker."""
     now_ts = time.time()
     _cognitive_health['calls'].append(now_ts)
-    if not success:
-        _cognitive_health['failures'].append(now_ts)
-    # Limpiar entradas viejas (>1h)
+    if not success: _cognitive_health['failures'].append(now_ts)
     cutoff = now_ts - 3600
     _cognitive_health['calls']    = [t for t in _cognitive_health['calls']    if t > cutoff]
     _cognitive_health['failures'] = [t for t in _cognitive_health['failures'] if t > cutoff]
-    # Activar disabled mode si tasa de fallos > umbral
     if len(_cognitive_health['calls']) >= 5:
         rate = len(_cognitive_health['failures']) / len(_cognitive_health['calls'])
         if rate > COGNITIVE_FAILURE_THRESHOLD:
             _cognitive_health['disabled_until'] = now_ts + 3600
-            log.warning(f'[COGNITIVE] DISABLED MODE: tasa fallos {rate:.0%}, cooldown 1h')
+            log.warning(f'[COGNITIVE] DISABLED MODE: tasa fallos {rate:.0%}')
 
 def cognitive_is_disabled():
-    if _cognitive_health['disabled_until'] is None:
-        return False
+    if _cognitive_health['disabled_until'] is None: return False
     return time.time() < _cognitive_health['disabled_until']
 
 COGNITIVE_PROMPT = """Eres una capa de validacion institucional para un sistema de trading EUR/USD.
@@ -877,7 +1052,7 @@ COGNITIVE_PROMPT = """Eres una capa de validacion institucional para un sistema 
 Python ya tomo la decision tecnica (BUY o SELL) basada en su motor ICT/SMC determinístico.
 TU TRABAJO NO ES decidir direccion. TU TRABAJO ES validar el contexto institucional.
 
-Tu output DEBE ser un JSON con estos campos exactos (NINGUNO mas, ninguno menos):
+Tu output DEBE ser un JSON con estos campos exactos:
 
 {
   "veto": false,
@@ -892,268 +1067,182 @@ Tu output DEBE ser un JSON con estos campos exactos (NINGUNO mas, ninguno menos)
 REGLAS ESTRICTAS:
 - Tu NO puedes incluir el campo "action". Si lo incluyes el JSON sera rechazado.
 - "veto": true SOLO si detectas incoherencia institucional grave.
-- "confidence_multiplier": rango 0.5-1.0. Usa 0.9-1.0 para setups limpios, 0.7-0.9 si hay dudas leves, 0.5-0.7 si hay dudas serias pero no para vetar.
+- "confidence_multiplier": rango 0.5-1.0.
 - "narrative_quality": "clean" / "acceptable" / "dirty"
-- "anomalies": lista corta de strings. Vacia si no hay anomalias.
-- "narrative": max 500 caracteres. Lectura institucional concisa.
+- "anomalies": lista corta de strings.
+- "narrative": max 500 caracteres.
 
 CRITERIOS PARA VETAR (solo si aplica):
-- Delivery institucional incoherente (sweep accidental, sin build-up de liquidez previo)
-- Post-news chaos (volatilidad anomala fuera de filtro de noticias)
-- Regime mismatch (setup de continuacion en compresion extrema, o reversal en trending fuerte sin agotamiento)
-- Stale liquidity (nivel ya barrido en sesiones previas)
-- Anomalia clara de delivery (gaps, mechas multiples sin direccion, volumen disonante)
+- Delivery institucional incoherente
+- Post-news chaos
+- Regime mismatch
+- Stale liquidity
+- Anomalia clara de delivery
 
 NO vetes por feeling. Solo veta con razon concreta.
-Responde SOLO el JSON. Sin texto antes ni despues. Sin markdown."""
+Responde SOLO el JSON. Sin texto antes ni despues."""
 
 async def call_cognitive_layer(ict: dict, recent_history: list) -> Optional[CognitiveValidation]:
-    """
-    Llama a Claude Sonnet para validacion contextual.
-    Retorna CognitiveValidation o None si falla.
-    """
-    if not ANTHROPIC_API_KEY:
-        log.info('[COGNITIVE] Sin API key - skip')
-        return None
-    if cognitive_is_disabled():
-        log.info('[COGNITIVE] Disabled mode activo - skip')
-        return None
-
-    score = ict.get('score', {})
-    sweep = ict.get('sweep', {})
+    if not ANTHROPIC_API_KEY: return None
+    if cognitive_is_disabled(): return None
+    score = ict.get('score', {}); sweep = ict.get('sweep', {})
     technical_action = score.get('action')
-
     if not technical_action or not sweep.get('detected') or not score.get('executable'):
-        # No tiene sentido llamar a Claude si Python ya dijo HOLD
         return None
-
     context_bundle = {
-        'setup': {
-            'instrument': 'EUR_USD',
-            'technical_action': technical_action,
-            'technical_confidence': score.get('confidence', 0),
-            'technical_score': score.get('total', 0),
-            'killzone': ict.get('killzone'),
-            'timestamp_et': now_et().isoformat(),
-        },
+        'setup': {'instrument': 'EUR_USD', 'technical_action': technical_action,
+                  'technical_confidence': score.get('confidence', 0),
+                  'technical_score': score.get('total', 0),
+                  'killzone': ict.get('killzone'),
+                  'timestamp_et': now_et().isoformat()},
         'features': {
-            'sweep':        {'level_type': sweep.get('level_type'), 'quality': sweep.get('quality'),
-                             'wick_pct': sweep.get('wick_pct')},
+            'sweep': {'level_type': sweep.get('level_type'), 'quality': sweep.get('quality'),
+                      'wick_pct': sweep.get('wick_pct')},
             'displacement': {'strength': ict.get('displacement', {}).get('strength')},
             'bos':          {'quality': ict.get('structure', {}).get('bos_quality')},
-            'htf_bias':     ict.get('htf_bias'),
-            'htf_strength': ict.get('htf_strength'),
+            'htf_bias':     ict.get('htf_bias'), 'htf_strength': ict.get('htf_strength'),
             'inducement':   ict.get('inducement', {}),
-            'fvg':          {'valid': bool(ict.get('fvg_ob', {}).get('fvg')),
-                             'quality': (ict.get('fvg_ob', {}).get('fvg') or {}).get('quality')},
-            'atr_pips':     ict.get('atr_pips'),
-            'adr_pct':      ict.get('adr_pct'),
+            'fvg': {'valid': bool(ict.get('fvg_ob', {}).get('fvg')),
+                    'quality': (ict.get('fvg_ob', {}).get('fvg') or {}).get('quality')},
+            'atr_pips': ict.get('atr_pips'), 'adr_pct': ict.get('adr_pct'),
         },
         'liq_target': ict.get('liq_target'),
-        'context': {
-            'last_5_decisions':    (recent_history or [])[-5:],
-            'consecutive_losses':  state.get('consecutive_losses', 0),
-            'defensive_mode':      state.get('defensive_mode', False),
-        }
-    }
-
+        'context': {'last_5_decisions': (recent_history or [])[-5:],
+                    'consecutive_losses': state.get('consecutive_losses', 0),
+                    'defensive_mode': state.get('defensive_mode', False)}}
     try:
         async with httpx.AsyncClient(timeout=COGNITIVE_TIMEOUT_SEC) as client:
-            r = await client.post(
-                'https://api.anthropic.com/v1/messages',
+            r = await client.post('https://api.anthropic.com/v1/messages',
                 headers={'Content-Type': 'application/json',
                          'x-api-key': ANTHROPIC_API_KEY,
                          'anthropic-version': '2023-06-01'},
                 json={'model': SONNET_MODEL, 'max_tokens': 600,
                       'system': COGNITIVE_PROMPT,
                       'messages': [{'role': 'user',
-                                    'content': json.dumps(context_bundle, ensure_ascii=False)}]}
-            )
+                                    'content': json.dumps(context_bundle, ensure_ascii=False)}]})
             if not r.is_success:
                 log.warning(f'[COGNITIVE] HTTP {r.status_code}')
-                cognitive_record(success=False)
-                return None
+                cognitive_record(False); return None
             raw_text = r.json()['content'][0]['text']
     except Exception as e:
         log.warning(f'[COGNITIVE] Exception: {e}')
-        cognitive_record(success=False)
-        return None
-
-    # Parse + validate
+        cognitive_record(False); return None
     try:
         clean = raw_text.replace('```json', '').replace('```', '').strip()
-        start = clean.find('{')
-        end   = clean.rfind('}')
-        if start == -1 or end == -1:
-            raise ValueError('No JSON found')
+        start = clean.find('{'); end = clean.rfind('}')
+        if start == -1 or end == -1: raise ValueError('No JSON')
         parsed = json.loads(clean[start:end+1])
-        # Eliminar campo 'action' si Claude lo coloco (defensa extra)
         parsed.pop('action', None)
         validation = CognitiveValidation(**parsed)
-        cognitive_record(success=True)
+        cognitive_record(True)
         return validation
     except Exception as e:
-        log.warning(f'[COGNITIVE] Parse/validate failed: {e} | raw: {raw_text[:200]}')
-        cognitive_record(success=False)
-        return None
+        log.warning(f'[COGNITIVE] Parse failed: {e}')
+        cognitive_record(False); return None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 11: DECISION GATE (combina technical + cognitive con reglas duras)
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-# REGLA 1: action SIEMPRE viene de Python (technical). Claude no puede cambiarla.
-# REGLA 2 (fallback): si Claude no disponible -> score >= 95 opera con x0.80, sino HOLD
-# REGLA 3: veto de Claude convierte action en HOLD pero deja audit trail
-#
+# SECCION 11: DECISION GATE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def decision_gate(ict: dict, cognitive: Optional[CognitiveValidation]) -> dict:
-    """
-    Combina la decision tecnica (Python) con la validacion cognitiva (Claude).
-    Retorna la decision FINAL del sistema.
-    """
-    score   = ict.get('score', {})
-    sweep   = ict.get('sweep', {})
-    levels  = ict.get('levels')
+    score = ict.get('score', {}); sweep = ict.get('sweep', {}); levels = ict.get('levels')
     technical_action     = score.get('action')
     technical_confidence = score.get('confidence', 0)
     technical_score      = score.get('total', 0)
 
-    # CASO 1: Python ya dijo HOLD (no se llamo a Claude)
     if not score.get('executable') or technical_action not in ('BUY', 'SELL'):
-        return {
-            'action':             'HOLD',
-            'confidence':         0,
-            'score':              technical_score,
-            'source':             'hold_technical',
-            'reason':             score.get('reasons', ['Score insuficiente'])[0] if score.get('reasons') else 'HOLD',
-            'cognitive_veto':     False,
-            'cognitive_multiplier': None,
-            'narrative':          '',
-            'anomalies':          [],
-            'narrative_quality':  None,
-            'regime_assessment':  None,
-            # Niveles (todos en 0 porque no hay setup ejecutable)
-            'sl': 0, 'tp1': 0, 'tp2': 0, 'pos_size': 0, 'rr1': 0, 'rr2': 0,
-            'entry_zone': {'high': 0, 'low': 0},
-            'liq_target': ict.get('liq_target', {}),
-            'killzone':   ict.get('killzone'),
-            'htf_bias':   ict.get('htf_bias'),
-        }
+        return {'action': 'HOLD', 'confidence': 0, 'score': technical_score,
+                'source': 'hold_technical',
+                'reason': score.get('reasons', ['HOLD'])[0] if score.get('reasons') else 'HOLD',
+                'cognitive_veto': False, 'cognitive_multiplier': None,
+                'narrative': '', 'anomalies': [],
+                'narrative_quality': None, 'regime_assessment': None,
+                'sl': 0, 'tp1': 0, 'tp2': 0, 'pos_size': 0, 'rr1': 0, 'rr2': 0,
+                'entry_zone': {'high': 0, 'low': 0},
+                'liq_target': ict.get('liq_target', {}),
+                'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias')}
 
-    # CASO 2: Python dijo BUY/SELL pero Claude no respondio -> Regla 2 (fallback)
     if cognitive is None:
         if technical_score >= ELITE_SCORE_THRESHOLD:
-            # Elite: opera con penalty
             confidence_final = round(technical_confidence * ELITE_NO_COGNITIVE_PENALTY, 3)
-            return {
-                'action':             technical_action,
-                'confidence':         confidence_final,
-                'score':              technical_score,
-                'source':             'cognitive_down_elite',
-                'reason':             f'Elite setup (score {technical_score}) con cognitive down. Penalty x{ELITE_NO_COGNITIVE_PENALTY}.',
-                'cognitive_veto':     False,
-                'cognitive_multiplier': ELITE_NO_COGNITIVE_PENALTY,
-                'narrative':          'Cognitive layer no disponible - operando en modo elite',
-                'anomalies':          [],
-                'narrative_quality':  None,
-                'regime_assessment':  None,
+            return {'action': technical_action, 'confidence': confidence_final,
+                    'score': technical_score, 'source': 'cognitive_down_elite',
+                    'reason': f'Elite setup (score {technical_score}) con cognitive down.',
+                    'cognitive_veto': False, 'cognitive_multiplier': ELITE_NO_COGNITIVE_PENALTY,
+                    'narrative': 'Cognitive layer no disponible - operando en modo elite',
+                    'anomalies': [], 'narrative_quality': None, 'regime_assessment': None,
+                    'sl': levels['sl'] if levels else 0,
+                    'tp1': levels['tp1'] if levels else 0,
+                    'tp2': levels['tp2'] if levels else 0,
+                    'pos_size': levels['pos_size'] if levels else 0,
+                    'rr1': levels['rr1'] if levels else 0,
+                    'rr2': levels['rr2'] if levels else 0,
+                    'entry_zone': levels['entry_zone'] if levels else {'high': 0, 'low': 0},
+                    'liq_target': ict.get('liq_target', {}),
+                    'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias')}
+        else:
+            return {'action': 'HOLD', 'confidence': 0, 'score': technical_score,
+                    'source': 'cognitive_down_non_elite',
+                    'reason': f'Cognitive down + score {technical_score} no elite',
+                    'cognitive_veto': False, 'cognitive_multiplier': None,
+                    'narrative': 'Cognitive layer no disponible y setup no es elite',
+                    'anomalies': [], 'narrative_quality': None, 'regime_assessment': None,
+                    'sl': 0, 'tp1': 0, 'tp2': 0, 'pos_size': 0, 'rr1': 0, 'rr2': 0,
+                    'entry_zone': {'high': 0, 'low': 0},
+                    'liq_target': ict.get('liq_target', {}),
+                    'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias')}
+
+    if cognitive.veto:
+        return {'action': 'HOLD', 'confidence': 0, 'score': technical_score,
+                'source': 'vetoed',
+                'reason': f'Cognitive veto: {cognitive.veto_reason}',
+                'cognitive_veto': True, 'cognitive_multiplier': cognitive.confidence_multiplier,
+                'narrative': cognitive.narrative, 'anomalies': cognitive.anomalies,
+                'narrative_quality': cognitive.narrative_quality,
+                'regime_assessment': cognitive.regime_assessment,
                 'sl': levels['sl'] if levels else 0,
                 'tp1': levels['tp1'] if levels else 0,
                 'tp2': levels['tp2'] if levels else 0,
-                'pos_size': levels['pos_size'] if levels else 0,
+                'pos_size': 0,
                 'rr1': levels['rr1'] if levels else 0,
                 'rr2': levels['rr2'] if levels else 0,
                 'entry_zone': levels['entry_zone'] if levels else {'high': 0, 'low': 0},
                 'liq_target': ict.get('liq_target', {}),
-                'killzone':   ict.get('killzone'),
-                'htf_bias':   ict.get('htf_bias'),
-            }
-        else:
-            # No-elite + sin Claude = HOLD
-            return {
-                'action':             'HOLD',
-                'confidence':         0,
-                'score':              technical_score,
-                'source':             'cognitive_down_non_elite',
-                'reason':             f'Cognitive down + score {technical_score} < {ELITE_SCORE_THRESHOLD} (no elite)',
-                'cognitive_veto':     False,
-                'cognitive_multiplier': None,
-                'narrative':          'Cognitive layer no disponible y setup no es elite',
-                'anomalies':          [],
-                'narrative_quality':  None,
-                'regime_assessment':  None,
-                'sl': 0, 'tp1': 0, 'tp2': 0, 'pos_size': 0, 'rr1': 0, 'rr2': 0,
-                'entry_zone': {'high': 0, 'low': 0},
-                'liq_target': ict.get('liq_target', {}),
-                'killzone':   ict.get('killzone'),
-                'htf_bias':   ict.get('htf_bias'),
-            }
+                'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias'),
+                'technical_action_that_would_have_been': technical_action,
+                'technical_confidence_pre_veto': technical_confidence}
 
-    # CASO 3: Claude vetó -> HOLD con reason
-    if cognitive.veto:
-        return {
-            'action':             'HOLD',
-            'confidence':         0,
-            'score':              technical_score,
-            'source':             'vetoed',
-            'reason':             f'Cognitive veto: {cognitive.veto_reason}',
-            'cognitive_veto':     True,
-            'cognitive_multiplier': cognitive.confidence_multiplier,
-            'narrative':          cognitive.narrative,
-            'anomalies':          cognitive.anomalies,
-            'narrative_quality':  cognitive.narrative_quality,
-            'regime_assessment':  cognitive.regime_assessment,
-            # Niveles informativos (para mostrar en dashboard que setup tecnico existia)
+    confidence_final = round(technical_confidence * cognitive.confidence_multiplier, 3)
+    return {'action': technical_action, 'confidence': confidence_final,
+            'score': technical_score, 'source': 'validated',
+            'reason': cognitive.narrative,
+            'cognitive_veto': False, 'cognitive_multiplier': cognitive.confidence_multiplier,
+            'narrative': cognitive.narrative, 'anomalies': cognitive.anomalies,
+            'narrative_quality': cognitive.narrative_quality,
+            'regime_assessment': cognitive.regime_assessment,
             'sl': levels['sl'] if levels else 0,
             'tp1': levels['tp1'] if levels else 0,
             'tp2': levels['tp2'] if levels else 0,
-            'pos_size': 0,   # no opera, position 0
+            'pos_size': levels['pos_size'] if levels else 0,
             'rr1': levels['rr1'] if levels else 0,
             'rr2': levels['rr2'] if levels else 0,
             'entry_zone': levels['entry_zone'] if levels else {'high': 0, 'low': 0},
             'liq_target': ict.get('liq_target', {}),
-            'killzone':   ict.get('killzone'),
-            'htf_bias':   ict.get('htf_bias'),
-            # Lo que habria sido si no vetaba (para metricas de veto)
-            'technical_action_that_would_have_been': technical_action,
-            'technical_confidence_pre_veto': technical_confidence,
-        }
-
-    # CASO 4: Claude validó -> action = technical, confidence = technical * multiplier
-    confidence_final = round(technical_confidence * cognitive.confidence_multiplier, 3)
-    return {
-        'action':             technical_action,
-        'confidence':         confidence_final,
-        'score':              technical_score,
-        'source':             'validated',
-        'reason':             cognitive.narrative,
-        'cognitive_veto':     False,
-        'cognitive_multiplier': cognitive.confidence_multiplier,
-        'narrative':          cognitive.narrative,
-        'anomalies':          cognitive.anomalies,
-        'narrative_quality':  cognitive.narrative_quality,
-        'regime_assessment':  cognitive.regime_assessment,
-        'sl': levels['sl'] if levels else 0,
-        'tp1': levels['tp1'] if levels else 0,
-        'tp2': levels['tp2'] if levels else 0,
-        'pos_size': levels['pos_size'] if levels else 0,
-        'rr1': levels['rr1'] if levels else 0,
-        'rr2': levels['rr2'] if levels else 0,
-        'entry_zone': levels['entry_zone'] if levels else {'high': 0, 'low': 0},
-        'liq_target': ict.get('liq_target', {}),
-        'killzone':   ict.get('killzone'),
-        'htf_bias':   ict.get('htf_bias'),
-    }
+            'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias')}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 12: ORQUESTADOR PRINCIPAL (run_analysis)
+# SECCION 12: ORQUESTADOR + MEMORIA
 # ═══════════════════════════════════════════════════════════════════════════════
+
+async def _send_critical_alert(alert_type: str, msg: str, details: dict):
+    subj, html = build_critical_alert_email(alert_type, msg, details)
+    await send_email(subj, html)
 
 def update_memory(trade_result=None):
     global memory
+    prev_defensive = state.get('defensive_mode', False)
     if trade_result:
         memory['recent_trades'].append(trade_result)
         memory['recent_trades'] = memory['recent_trades'][-50:]
@@ -1172,39 +1261,37 @@ def update_memory(trade_result=None):
     if len(recent10) >= 5:
         sl_count = sum(1 for t in recent10 if t.get('outcome') == 'SL')
         if sl_count >= 4:
-            state['defensive_mode']   = True
+            state['defensive_mode'] = True
             state['defensive_reason'] = f'{sl_count} SL en ultimos 10 trades'
             log.warning(f'[DEFENSE] Modo defensivo activado')
+            if not prev_defensive:
+                asyncio.create_task(_send_critical_alert(
+                    'MODO DEFENSIVO ACTIVADO',
+                    f'Sistema detectó {sl_count} SL en los últimos 10 trades. Score mínimo aumentado +10 puntos.',
+                    {'SL recientes': sl_count, 'Total últimos 10': len(recent10)}))
         elif sl_count <= 1 and state.get('defensive_mode'):
-            state['defensive_mode']   = False
-            state['defensive_reason'] = ''
-            log.info('[DEFENSE] Modo defensivo desactivado')
+            state['defensive_mode'] = False; state['defensive_reason'] = ''
     memory['last_updated'] = now_utc().isoformat()
     storage_write_json('memory/edge_tracker.json', memory)
     storage_write_json('memory/session_stats.json', memory.get('session_stats', {}))
+
 
 async def run_analysis(auto_execute=False):
     log.info('=== ANALISIS EUR/USD ===')
     try:
         acc = await get_account()
         state['balance'] = float(acc.get('balance', state['balance']))
-    except Exception as e:
-        log.error(f'[BALANCE] {e}')
-    try:
-        state['open_trades'] = await get_open_trades()
-    except Exception:
-        pass
+    except Exception as e: log.error(f'[BALANCE] {e}')
+    try: state['open_trades'] = await get_open_trades()
+    except Exception: pass
 
     live_news = []
-    try:
-        live_news = await fetch_ff_calendar()
-    except Exception:
-        pass
+    try: live_news = await fetch_ff_calendar()
+    except Exception: pass
     all_news = HIGH_IMPACT_EVENTS + live_news
     et = now_et()
     news_blocked, news_reason = is_news_blocked(et, all_news)
-    if news_blocked:
-        log.info(f'[NEWS] Bloqueado: {news_reason}')
+    if news_blocked: log.info(f'[NEWS] Bloqueado: {news_reason}')
 
     h1 = h4 = d1 = []
     try:
@@ -1212,99 +1299,81 @@ async def run_analysis(auto_execute=False):
         h4 = await get_candles('H4', 50)
         d1 = await get_candles('D', 10)
         log.info(f'[VELAS] H1:{len(h1)} H4:{len(h4)} D1:{len(d1)}')
-    except Exception as e:
-        log.error(f'[VELAS] {e}')
+    except Exception as e: log.error(f'[VELAS] {e}')
 
     price = 0.0
-    try:
-        price = await get_price()
+    try: price = await get_price()
     except Exception:
         if h1: price = float(h1[-1]['mid']['c'])
 
-    # PASO 1: Python calcula technical decision
     ict = run_ict_pipeline(h1, h4, d1, price, state['balance'], state['risk_pct_current'])
-    log.info(f'[ICT] sweep:{ict["sweep"].get("detected")} score:{ict["score"]["total"]}/100 '
-             f'htf:{ict.get("htf_bias")} kill:{ict.get("killzone")}')
+    log.info(f'[ICT] sweep:{ict["sweep"].get("detected")} score:{ict["score"]["total"]}/100')
 
-    # PASO 2: Si tecnico aprueba, llamar Cognitive Layer (Claude)
     cognitive = None
     if ict.get('score', {}).get('executable') and ict['sweep'].get('detected'):
         cognitive = await call_cognitive_layer(ict, state.get('history', [])[-10:])
         if cognitive:
-            log.info(f'[COGNITIVE] veto={cognitive.veto} mult={cognitive.confidence_multiplier} '
-                     f'quality={cognitive.narrative_quality}')
+            log.info(f'[COGNITIVE] veto={cognitive.veto} mult={cognitive.confidence_multiplier}')
 
-    # PASO 3: Decision Gate combina ambos
     decision = decision_gate(ict, cognitive)
-    log.info(f'[GATE] {decision["action"]} conf:{decision["confidence"]:.0%} '
-             f'score:{decision["score"]}/100 source:{decision["source"]}')
+    log.info(f'[GATE] {decision["action"]} conf:{decision["confidence"]:.0%} source:{decision["source"]}')
 
-    # PASO 4: Guardar audit trail
+    # NOTIFICACION: si Claude veto, mandar email
+    if decision.get('source') == 'vetoed':
+        subj, html = build_cognitive_veto_email(decision)
+        asyncio.create_task(send_email(subj, html))
+
     audit_record = {
-        'technical_action':     ict.get('score', {}).get('action'),
+        'technical_action': ict.get('score', {}).get('action'),
         'technical_confidence': ict.get('score', {}).get('confidence', 0),
-        'technical_score':      ict.get('score', {}).get('total', 0),
-        'technical_factors':    ict.get('score', {}).get('factors', {}),
-        'killzone':             ict.get('killzone'),
-        'htf_bias':             ict.get('htf_bias'),
-        'news_blocked':         news_blocked,
-        'news_reason':          news_reason,
-        'cognitive_called':     cognitive is not None,
-        'cognitive_veto':       decision.get('cognitive_veto'),
+        'technical_score': ict.get('score', {}).get('total', 0),
+        'technical_factors': ict.get('score', {}).get('factors', {}),
+        'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias'),
+        'news_blocked': news_blocked, 'news_reason': news_reason,
+        'cognitive_called': cognitive is not None,
+        'cognitive_veto': decision.get('cognitive_veto'),
         'cognitive_multiplier': decision.get('cognitive_multiplier'),
-        'narrative':            decision.get('narrative', ''),
-        'narrative_quality':    decision.get('narrative_quality'),
-        'anomalies':            decision.get('anomalies', []),
-        'regime_assessment':    decision.get('regime_assessment'),
-        'final_action':         decision['action'],
-        'final_confidence':     decision['confidence'],
-        'final_source':         decision['source'],
-        'final_reason':         decision['reason'],
-        'price':                price,
-        'sl':                   decision.get('sl', 0),
-        'tp1':                  decision.get('tp1', 0),
-        'tp2':                  decision.get('tp2', 0),
+        'narrative': decision.get('narrative', ''),
+        'narrative_quality': decision.get('narrative_quality'),
+        'anomalies': decision.get('anomalies', []),
+        'regime_assessment': decision.get('regime_assessment'),
+        'final_action': decision['action'], 'final_confidence': decision['confidence'],
+        'final_source': decision['source'], 'final_reason': decision['reason'],
+        'price': price, 'sl': decision.get('sl', 0),
+        'tp1': decision.get('tp1', 0), 'tp2': decision.get('tp2', 0),
     }
     audit_decision(audit_record)
 
-    # Guardar estado
     state['last_analysis'] = {'ict': ict, 'price': price}
     state['last_decision'] = decision
     state['last_update']   = now_utc().isoformat()
 
-    # Mantener compat con dashboard actual: append a state['history']
     et_now = now_et()
     legacy_entry = {
-        'timestamp':    now_utc().isoformat(),
-        'date':         et_now.strftime('%Y-%m-%d'),
-        'time':         et_now.strftime('%H:%M ET'),
-        'day_of_week':  et_now.strftime('%A'),
-        'month':        et_now.strftime('%B %Y'),
-        'killzone':     ict.get('killzone', '--'),
-        'action':       decision['action'],
-        'confidence':   decision['confidence'],
-        'score':        decision['score'],
-        'source':       decision.get('source', ''),
+        'timestamp': now_utc().isoformat(),
+        'date': et_now.strftime('%Y-%m-%d'),
+        'time': et_now.strftime('%H:%M ET'),
+        'day_of_week': et_now.strftime('%A'),
+        'month': et_now.strftime('%B %Y'),
+        'killzone': ict.get('killzone', '--'),
+        'action': decision['action'], 'confidence': decision['confidence'],
+        'score': decision['score'], 'source': decision.get('source', ''),
         'sweep_detected': ict['sweep'].get('detected', False),
-        'sweep_level':  ict['sweep'].get('level', 0),
-        'sweep_type':   ict['sweep'].get('level_type', ''),
-        'sweep_quality':ict['sweep'].get('quality', ''),
-        'htf_bias':     ict.get('htf_bias', ''),
+        'sweep_level': ict['sweep'].get('level', 0),
+        'sweep_type': ict['sweep'].get('level_type', ''),
+        'sweep_quality': ict['sweep'].get('quality', ''),
+        'htf_bias': ict.get('htf_bias', ''),
         'htf_strength': ict.get('htf_strength', 0),
-        'bos_quality':  ict.get('structure', {}).get('bos_quality', ''),
+        'bos_quality': ict.get('structure', {}).get('bos_quality', ''),
         'displacement': ict.get('displacement', {}).get('strength', ''),
-        'inducement':   ict.get('inducement', {}).get('quality', ''),
-        'adr_pct':      ict.get('adr_pct', 0),
-        'atr_pips':     ict.get('atr_pips', 0),
-        'sl':           decision.get('sl', 0),
-        'tp1':          decision.get('tp1', 0),
-        'tp2':          decision.get('tp2', 0),
-        'rr1':          decision.get('rr1', 0),
-        'rr2':          decision.get('rr2', 0),
-        'price':        price,
-        'ceo_reason':   decision.get('reason', ''),
-        'ceo_macro':    decision.get('regime_assessment', ''),
-        'ceo_rec':      ', '.join(decision.get('anomalies', [])) if decision.get('anomalies') else '',
+        'inducement': ict.get('inducement', {}).get('quality', ''),
+        'adr_pct': ict.get('adr_pct', 0), 'atr_pips': ict.get('atr_pips', 0),
+        'sl': decision.get('sl', 0), 'tp1': decision.get('tp1', 0),
+        'tp2': decision.get('tp2', 0),
+        'rr1': decision.get('rr1', 0), 'rr2': decision.get('rr2', 0),
+        'price': price, 'ceo_reason': decision.get('reason', ''),
+        'ceo_macro': decision.get('regime_assessment', ''),
+        'ceo_rec': ', '.join(decision.get('anomalies', [])) if decision.get('anomalies') else '',
         'cognitive_veto': decision.get('cognitive_veto', False),
         'cognitive_multiplier': decision.get('cognitive_multiplier'),
         'narrative_quality': decision.get('narrative_quality'),
@@ -1318,12 +1387,8 @@ async def run_analysis(auto_execute=False):
         state['history'] = state['history'][-2000:]
     storage_write_json('legacy/history.json', state['history'][-2000:])
 
-    log.info(f'[DECISION] {decision["action"]} ({decision["confidence"]:.0%}) score:{decision["score"]}/100')
-
-    # PASO 5: Ejecutar si corresponde
     if auto_execute and is_session() and not news_blocked:
         await execute_signal(decision)
-
     log.info('=== FIN ANALISIS ===')
 
 
@@ -1332,23 +1397,36 @@ async def run_analysis(auto_execute=False):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def update_risk(win, pnl):
+    prev_paused = state.get('trading_paused', False)
+    prev_consec = state.get('consecutive_losses', 0)
     if not win and pnl < 0:
         state['consecutive_losses'] += 1
         today = str(now_et().date())
         if state.get('daily_loss_date') != today:
-            state['daily_loss_date'] = today
-            state['daily_loss_usd']  = 0.0
+            state['daily_loss_date'] = today; state['daily_loss_usd'] = 0.0
         state['daily_loss_usd'] += abs(pnl)
         bal = state.get('balance', 100000.0)
         if state['daily_loss_usd'] >= bal * (MAX_DAILY_LOSS / 100):
             state['trading_paused'] = True
-            state['pause_reason']   = f'Limite perdida diaria ${state["daily_loss_usd"]:.0f}'
+            state['pause_reason'] = f'Limite perdida diaria ${state["daily_loss_usd"]:.0f}'
+            if not prev_paused:
+                asyncio.create_task(_send_critical_alert(
+                    'TRADING PAUSADO · DAILY LOSS LIMIT',
+                    f'Sistema alcanzó el límite de pérdida diaria del {MAX_DAILY_LOSS}% del balance. Trading pausado hasta mañana 3:00 AM ET.',
+                    {'Pérdida diaria': f'${state["daily_loss_usd"]:,.2f}',
+                     'Balance': f'${bal:,.2f}',
+                     'Pérdida %': f'{(state["daily_loss_usd"]/bal*100):.2f}%'}))
         if state['consecutive_losses'] >= CONSEC_PAUSE:
             state['risk_pct_current'] = max(0.25, state['risk_pct_current'] / 2)
+            if state['consecutive_losses'] != prev_consec:
+                asyncio.create_task(_send_critical_alert(
+                    'RIESGO REDUCIDO · LOSSES CONSECUTIVOS',
+                    f'{state["consecutive_losses"]} pérdidas consecutivas. Riesgo por trade reducido automáticamente.',
+                    {'Pérdidas consecutivas': state['consecutive_losses'],
+                     'Nuevo risk %': f'{state["risk_pct_current"]:.2f}%'}))
     else:
         state['consecutive_losses'] = 0
-        if state['risk_pct_current'] < RISK_PCT:
-            state['risk_pct_current'] = RISK_PCT
+        if state['risk_pct_current'] < RISK_PCT: state['risk_pct_current'] = RISK_PCT
 
 async def execute_signal(decision):
     if state['trading_paused'] or decision['action'] == 'HOLD': return
@@ -1357,13 +1435,13 @@ async def execute_signal(decision):
     sz = max(1000, int(decision.get('pos_size', 1000)))
     if sl <= 0 or tp <= 0: return
     try:
-        result   = await place_order(sz, sl, tp, decision['action'])
-        fill     = result.get('orderFillTransaction', {})
+        result = await place_order(sz, sl, tp, decision['action'])
+        fill = result.get('orderFillTransaction', {})
         trade_id = fill.get('tradeOpened', {}).get('tradeID', '')
         if trade_id:
             state['active_trades_meta'][trade_id] = {
                 'open_time': now_utc().isoformat(),
-                'action':    decision['action'],
+                'action': decision['action'],
                 'entry_price': float(fill.get('price', 0)),
                 'tp1': tp, 'tp2': decision.get('tp2', 0),
                 'sl_original': sl, 'sl_current': sl,
@@ -1378,8 +1456,7 @@ async def execute_signal(decision):
                 'entry_price': float(fill.get('price', 0)),
                 'sl': sl, 'tp1': tp, 'tp2': decision.get('tp2', 0),
                 'rr1': decision.get('rr1', 0), 'rr2': decision.get('rr2', 0),
-                'pos_size': sz,
-                'score': decision.get('score', 0),
+                'pos_size': sz, 'score': decision.get('score', 0),
                 'confidence': decision.get('confidence', 0),
                 'killzone': decision.get('killzone', ''),
                 'htf_bias': decision.get('htf_bias', ''),
@@ -1394,6 +1471,9 @@ async def execute_signal(decision):
             state['live_trades'].append(trade_record)
             storage_append_jsonl('trades/trade_journal.jsonl', trade_record)
             storage_write_json('legacy/live_trades.json', state['live_trades'][-500:])
+            # NOTIFICACION: trade abierto
+            subj, html = build_trade_open_email(trade_record)
+            asyncio.create_task(send_email(subj, html))
         log.info(f'[EXEC] {decision["action"]} id:{trade_id}')
     except Exception as e:
         log.error(f'[EXEC] {e}')
@@ -1409,12 +1489,12 @@ async def monitor_trades():
     try:
         trades = await get_open_trades()
         state['open_trades'] = trades
-    except Exception:
-        return
+    except Exception: return
     cur = {t['id']: t for t in trades}
+
     for tid, trade in _prev_trades.items():
         if tid not in cur:
-            pnl  = float(trade.get('unrealizedPL', 0))
+            pnl = float(trade.get('unrealizedPL', 0))
             meta = state['active_trades_meta'].pop(tid, {})
             update_risk(pnl >= 0, pnl)
             sl_be = meta.get('sl_breakeven', False); par = meta.get('partial_closed', False)
@@ -1425,22 +1505,23 @@ async def monitor_trades():
             elif pnl < 0:                  outcome = 'SL'
             else:                          outcome = 'TP'
             gestion = []
-            if par:   gestion.append('Parcial 50% en TP1')
-            if sl_be: gestion.append('SL a BE')
-            if outcome == 'SL':   gestion.append('SL hit')
-            elif outcome == 'BE': gestion.append('Cerrado en BE')
-            elif outcome in ('TP', 'TP2'): gestion.append(f'{outcome} alcanzado')
+            if par:   gestion.append('Parcial 50% cerrado en TP1')
+            if sl_be: gestion.append('SL movido a Break-Even tras BOS')
+            if outcome == 'SL':   gestion.append('Stop Loss hit')
+            elif outcome == 'BE': gestion.append('Cerrado en BE - capital protegido')
+            elif outcome in ('TP', 'TP2'): gestion.append(f'{outcome} alcanzado en target')
             ceo_obs = (f'SL hit. P&L: ${pnl:.0f}.' if outcome == 'SL' else
                        f'TP2 alcanzado. P&L: ${pnl:.0f}.' if outcome == 'TP2' else
                        f'BE. Capital protegido. P&L: ${pnl:.0f}.' if outcome == 'BE' else
                        f'TP alcanzado. P&L: ${pnl:.0f}.')
+            trade_record = None
             for lt in reversed(state['live_trades']):
                 if lt.get('trade_id') == tid:
                     lt.update({'outcome': outcome, 'result_usd': round(pnl, 2),
                                'close_time': now_et().strftime('%H:%M ET'),
                                'gestion': ' | '.join(gestion), 'sl_moved_be': sl_be,
                                'partial_closed': par, 'ceo_obs': ceo_obs})
-                    break
+                    trade_record = lt; break
             for h in reversed(state['history']):
                 if h.get('trade_id') == tid:
                     h['outcome'] = outcome; h['result_usd'] = round(pnl, 2); break
@@ -1449,13 +1530,16 @@ async def monitor_trades():
             adjust_weights(bt_state.get('log', []) + [{'outcome': outcome, 'failure_factors': []}])
             storage_write_json('legacy/live_trades.json', state['live_trades'][-500:])
             storage_write_json('legacy/history.json', state['history'][-2000:])
-            # Append al journal del trade cerrado con outcome
             storage_append_jsonl('trades/trade_journal.jsonl', {
                 'trade_id': tid, 'closed_at': now_utc().isoformat(),
                 'outcome': outcome, 'pnl_usd': round(pnl, 2),
-                'partial_closed': par, 'sl_moved_be': sl_be, 'gestion': ' | '.join(gestion),
-            })
+                'partial_closed': par, 'sl_moved_be': sl_be,
+                'gestion': ' | '.join(gestion)})
             log.info(f'[MONITOR] {tid} cerrado: {outcome} P&L:${pnl:.2f}')
+            # NOTIFICACION: trade cerrado
+            if trade_record:
+                subj, html = build_trade_close_email(trade_record, outcome, pnl, gestion)
+                asyncio.create_task(send_email(subj, html))
     _prev_trades = cur
 
     if (fuera or finde or vierne) and trades:
@@ -1463,31 +1547,28 @@ async def monitor_trades():
             try:
                 await close_trade(t['id'])
                 log.info(f'[MONITOR] Cerrado fuera sesion: {t["id"]}')
-            except Exception as e:
-                log.error(f'[MONITOR] {e}')
+            except Exception as e: log.error(f'[MONITOR] {e}')
         return
+
     for trade in trades:
-        tid    = str(trade['id'])
-        units  = int(trade.get('currentUnits', 0))
+        tid = str(trade['id']); units = int(trade.get('currentUnits', 0))
         action = 'BUY' if units > 0 else 'SELL'
-        meta   = state['active_trades_meta'].get(tid, {})
-        tp1    = meta.get('tp1', 0)
-        entry  = meta.get('entry_price', float(trade.get('price', 0)))
+        meta = state['active_trades_meta'].get(tid, {})
+        tp1 = meta.get('tp1', 0)
+        entry = meta.get('entry_price', float(trade.get('price', 0)))
         if meta.get('partial_closed') and not meta.get('sl_breakeven'):
             try:
-                h1_ = await get_candles('H1', 20)
-                atr_ = compute_atr(h1_)
+                h1_ = await get_candles('H1', 20); atr_ = compute_atr(h1_)
                 b, bq, _ = detect_bos(h1_, action, atr_)
                 if b and bq in ('strong', 'medium'):
                     await modify_sl(tid, entry)
                     meta['sl_breakeven'] = True
                     state['active_trades_meta'][tid] = meta
                     log.info(f'[MONITOR] BE activado {tid}')
-            except Exception as e:
-                log.error(f'[MONITOR] BE error: {e}')
+            except Exception as e: log.error(f'[MONITOR] BE error: {e}')
         if tp1 and not meta.get('partial_closed'):
             try:
-                cp  = await get_price()
+                cp = await get_price()
                 hit = (action == 'BUY' and cp >= tp1) or (action == 'SELL' and cp <= tp1)
                 if hit:
                     partial = abs(units) // 2
@@ -1496,55 +1577,52 @@ async def monitor_trades():
                         meta['partial_closed'] = True
                         state['active_trades_meta'][tid] = meta
                         log.info(f'[MONITOR] Parcial 50% {tid}')
-            except Exception as e:
-                log.error(f'[MONITOR] Parcial error: {e}')
+            except Exception as e: log.error(f'[MONITOR] Parcial error: {e}')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 14: BACKTESTING (sin cambios estructurales mayores)
+# SECCION 14: BACKTESTING
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def generate_post_mortem_local(td):
-    """Post-mortem LOCAL determinístico (Python). Reemplaza el viejo CEO templates."""
     outcome = td.get('outcome', ''); action = td.get('action', ''); score = td.get('score', 0)
     pnl = td.get('result', 0); disp = td.get('displacement_strength', '')
     ind = td.get('inducement_quality', ''); bos = td.get('bos_quality', '')
     htf = td.get('htf_bias', ''); adr = td.get('adr_pct', 0); news = td.get('news_blocked', False)
     analysis = ''; rec = ''; fail_factors = []
     if outcome in ('TP', 'TP2'):
-        analysis = f'Trade ganador. {action} score {score}/100. Disp {disp}. BOS {bos}. HTF {htf}.'
-        rec = 'Setup valido. Mantener criterios.'
+        analysis = f'Trade ganador. {action} score {score}/100.'
+        rec = 'Setup valido.'
     elif outcome == 'BE':
-        analysis = f'BE. {action} score {score}/100. TP1 alcanzado sin continuacion a TP2.'
-        rec = 'Revisar si TP2 era alcanzable con ADR disponible.'
+        analysis = f'BE. {action} score {score}/100.'; rec = 'Revisar TP2.'
     elif outcome == 'SL':
         analysis = f'SL hit. {action} score {score}/100. P&L: ${pnl:.0f}. '
-        if news:           analysis += 'Afectado por noticia.'; fail_factors.append('news_filter')
-        elif disp in ('weak', 'none'): analysis += 'Disp debil.'; fail_factors.append('displacement')
-        elif ind in ('weak', 'none'):  analysis += 'Ind insuficiente.'; fail_factors.append('inducement')
-        elif bos == 'weak': analysis += 'BOS debil.'; fail_factors.append('bos_quality')
-        elif adr < ADR_MIN: analysis += f'ADR consumido ({adr:.0%}).'; fail_factors.append('adr_remaining')
-        else:               analysis += 'Setup valido. Mercado no continuo.'; fail_factors.append('market_noise')
+        if news: analysis += 'Afectado por noticia.'; fail_factors.append('news_filter')
+        elif disp in ('weak', 'none'): fail_factors.append('displacement')
+        elif ind in ('weak', 'none'): fail_factors.append('inducement')
+        elif bos == 'weak': fail_factors.append('bos_quality')
+        elif adr < ADR_MIN: fail_factors.append('adr_remaining')
+        else: fail_factors.append('market_noise')
         rec = 'Loss aceptable.'
     return analysis, rec, fail_factors
 
 def simulate_trade(candles, entry_idx, action, sl, tp1, tp2, balance, atr):
     entry_p = float(candles[entry_idx]['mid']['c'])
-    spread  = 0.00015; slip = 0.00003
-    fill    = entry_p + (spread + slip) if action == 'BUY' else entry_p - (spread + slip)
+    spread = 0.00015; slip = 0.00003
+    fill = entry_p + (spread + slip) if action == 'BUY' else entry_p - (spread + slip)
     sl_dist = abs(fill - sl)
     if sl_dist <= 0: return None
-    risk_usd  = balance * (RISK_PCT / 100)
-    units     = max(1000, int(risk_usd / sl_dist))
-    sl_cur    = sl; units_cur = units; sl_be = False; par = False; pnl_par = 0.0
-    tp1_vela  = None; be_vela = None; be_reason = ''; gestion = []; MAX_V = 25
+    risk_usd = balance * (RISK_PCT / 100)
+    units = max(1000, int(risk_usd / sl_dist))
+    sl_cur = sl; units_cur = units; sl_be = False; par = False; pnl_par = 0.0
+    tp1_vela = None; be_vela = None; gestion = []; MAX_V = 25
     for v, fc in enumerate(candles[entry_idx+1:entry_idx+MAX_V+1], 1):
         fh = float(fc['mid']['h']); fl = float(fc['mid']['l'])
         if not par:
             if (action == 'BUY' and fh >= tp1) or (action == 'SELL' and fl <= tp1):
                 tp1_vela = v; half = units_cur // 2; pnl_par = half * abs(tp1 - fill)
                 units_cur -= half; par = True
-                gestion.append(f'V{v}: Parcial 50% @ {tp1:.5f} +${pnl_par:.0f}')
+                gestion.append(f'V{v}: Parcial 50% @ {tp1:.5f}')
         if par and not sl_be and tp1_vela and v >= tp1_vela + 2:
             wi = candles[entry_idx+v-2:entry_idx+v+1]
             if len(wi) >= 3:
@@ -1552,31 +1630,30 @@ def simulate_trade(candles, entry_idx, action, sl, tp1, tp2, balance, atr):
                 bos_ok = ((action == 'BUY' and hs[-1] > hs[0] + atr * 0.3) or
                           (action == 'SELL' and ls[-1] < ls[0] - atr * 0.3))
                 if bos_ok:
-                    sl_cur = fill; sl_be = True; be_vela = v; be_reason = 'BOS post-TP1'
-                    gestion.append(f'V{v}: SL->BE @ {fill:.5f}')
+                    sl_cur = fill; sl_be = True; be_vela = v
+                    gestion.append(f'V{v}: SL->BE')
         sl_hit = (action == 'BUY' and fl <= sl_cur) or (action == 'SELL' and fh >= sl_cur)
         if sl_hit:
             pnl_rest = 0.0 if sl_be else -(units_cur * sl_dist)
-            outcome  = 'BE' if sl_be else 'SL'
-            gestion.append(f'V{v}: SL hit @ {sl_cur:.5f}')
+            outcome = 'BE' if sl_be else 'SL'
+            gestion.append(f'V{v}: SL hit')
             total = pnl_par + pnl_rest
-            return _sim_r(total, outcome, units, fill, sl_dist, tp2, sl_be, be_vela, be_reason, par, pnl_par, tp1_vela, gestion, v)
+            return _sim_r(total, outcome, units, fill, sl_dist, tp2, sl_be, be_vela, par, pnl_par, tp1_vela, gestion, v)
         if (action == 'BUY' and fh >= tp2) or (action == 'SELL' and fl <= tp2):
             pnl_rest = units_cur * abs(tp2 - fill)
             total = pnl_par + pnl_rest
-            gestion.append(f'V{v}: TP2 @ {tp2:.5f} +${pnl_rest:.0f}')
-            return _sim_r(total, 'TP2', units, fill, sl_dist, tp2, sl_be, be_vela, be_reason, par, pnl_par, tp1_vela, gestion, v)
+            gestion.append(f'V{v}: TP2')
+            return _sim_r(total, 'TP2', units, fill, sl_dist, tp2, sl_be, be_vela, par, pnl_par, tp1_vela, gestion, v)
     last_p = float(candles[min(entry_idx+MAX_V, len(candles)-1)]['mid']['c'])
     pnl_rest = units_cur * (last_p - fill) if action == 'BUY' else units_cur * (fill - last_p)
     total = pnl_par + pnl_rest
     outcome = 'TP' if ((action == 'BUY' and last_p > fill) or (action == 'SELL' and last_p < fill)) else 'TIMEOUT'
-    gestion.append(f'V{MAX_V}: timeout @ {last_p:.5f}')
-    return _sim_r(total, outcome, units, fill, sl_dist, tp2, sl_be, be_vela, be_reason, par, pnl_par, tp1_vela, gestion, MAX_V)
+    return _sim_r(total, outcome, units, fill, sl_dist, tp2, sl_be, be_vela, par, pnl_par, tp1_vela, gestion, MAX_V)
 
-def _sim_r(total, outcome, units, fill, sl_dist, tp2, sl_be, be_vela, be_reason, par, pnl_par, tp1_vela, gestion, dur):
+def _sim_r(total, outcome, units, fill, sl_dist, tp2, sl_be, be_vela, par, pnl_par, tp1_vela, gestion, dur):
     return {'result': round(total,2), 'outcome': outcome, 'units': units, 'fill': round(fill,5),
             'rr_real': round(abs(tp2-fill)/sl_dist,2) if sl_dist > 0 else 0,
-            'sl_moved_be': sl_be, 'be_vela': be_vela, 'be_reason': be_reason,
+            'sl_moved_be': sl_be, 'be_vela': be_vela, 'be_reason': 'BOS post-TP1' if sl_be else '',
             'partial_closed': par, 'pnl_parcial': round(pnl_par,2), 'tp1_vela': tp1_vela,
             'gestion': ' | '.join(gestion) if gestion else 'Sin eventos', 'velas_duration': dur}
 
@@ -1607,13 +1684,12 @@ async def run_backtesting():
         cnt = defaultdict(int); last_day = ''; last_idx = -999
         d1_by_date = {c.get('time','')[:10]: i for i, c in enumerate(d1_all)}
         for i in range(30, len(h1) - 26):
-            c_time  = h1[i].get('time', '')
-            c_price = float(h1[i]['mid']['c'])
+            c_time = h1[i].get('time', ''); c_price = float(h1[i]['mid']['c'])
             try:
-                cdt   = datetime.fromisoformat(c_time.replace('Z', '+00:00')).astimezone(ET)
-                c_h   = cdt.hour; c_dow = cdt.weekday(); c_day = cdt.strftime('%Y-%m-%d')
-                if c_dow in (5, 6):                               cnt['weekend'] += 1; continue
-                if not (SESSION_START_ET <= c_h < SESSION_END_ET): cnt['sesion'] += 1;  continue
+                cdt = datetime.fromisoformat(c_time.replace('Z', '+00:00')).astimezone(ET)
+                c_h = cdt.hour; c_dow = cdt.weekday(); c_day = cdt.strftime('%Y-%m-%d')
+                if c_dow in (5, 6): cnt['weekend'] += 1; continue
+                if not (SESSION_START_ET <= c_h < SESSION_END_ET): cnt['sesion'] += 1; continue
             except Exception:
                 c_day = c_time[:10]; c_h = 8; cdt = None
             kill = get_killzone(c_h)
@@ -1622,26 +1698,24 @@ async def run_backtesting():
                 nb, _ = is_news_blocked(cdt, all_news)
                 if nb: cnt['news'] += 1; continue
             else: nb = False
-            if c_day == last_day:  cnt['cooldown'] += 1; continue
-            if i - last_idx < 5:   cnt['cooldown'] += 1; continue
+            if c_day == last_day: cnt['cooldown'] += 1; continue
+            if i - last_idx < 5: cnt['cooldown'] += 1; continue
             h1_w = h1[max(0, i-60):i+1]
-            atr  = compute_atr(h1_w); atr_p = atr * 10000
-            if atr_p < ATR_MIN_PIPS: cnt['vol'] += 1; continue
-            if atr_p > ATR_MAX_PIPS: cnt['vol'] += 1; continue
+            atr = compute_atr(h1_w); atr_p = atr * 10000
+            if atr_p < ATR_MIN_PIPS or atr_p > ATR_MAX_PIPS: cnt['vol'] += 1; continue
             d1_idx = d1_by_date.get(c_day, -1)
-            d1_w   = d1_all[:d1_idx+1] if d1_idx >= 0 else []
-            liq    = identify_liquidity_levels(h1_w, d1_w[-5:] if len(d1_w) >= 5 else None)
+            d1_w = d1_all[:d1_idx+1] if d1_idx >= 0 else []
+            liq = identify_liquidity_levels(h1_w, d1_w[-5:] if len(d1_w) >= 5 else None)
             htf_b, htf_s = detect_htf_bias(d1_w[-5:] if len(d1_w) >= 5 else None, h1_w)
-            ind    = detect_inducement(h1_w)
-            sweep  = detect_sweep(h1_w, liq, atr)
+            ind = detect_inducement(h1_w); sweep = detect_sweep(h1_w, liq, atr)
             if not sweep.get('detected'): cnt['no_sweep'] += 1; continue
             action = 'SELL' if sweep['direction'] == 'bearish' else 'BUY'
             df, ds, _ = detect_displacement(h1_w, action, atr)
-            bos_data  = detect_bos(h1_w, action, atr)
-            fvg_ob    = detect_fvg_ob(h1_w, action, atr)
+            bos_data = detect_bos(h1_w, action, atr)
+            fvg_ob = detect_fvg_ob(h1_w, action, atr)
             tl, tt, tr = compute_liquidity_target(action, liq, c_price, atr)
-            adr_pct   = 0.5
-            day_c     = [c for c in h1_w[-24:] if c.get('time','')[:10] == c_day]
+            adr_pct = 0.5
+            day_c = [c for c in h1_w[-24:] if c.get('time','')[:10] == c_day]
             if len(day_c) >= 3:
                 dh = max(float(c['mid']['h']) for c in day_c); dl = min(float(c['mid']['l']) for c in day_c)
                 adr_pct = max(0, 1 - (dh - dl) / (atr * 8))
@@ -1649,10 +1723,10 @@ async def run_backtesting():
             rh = [float(c['mid']['h']) for c in h1_w[-8:]]; rl = [float(c['mid']['l']) for c in h1_w[-8:]]
             consol_ok = (max(rh) - min(rl)) >= atr * 0.8
             c_dow_n = cdt.weekday() if cdt else 2
-            min_sc  = MIN_SCORE_WEDTHU if c_dow_n in (2, 3) else MIN_SCORE
+            min_sc = MIN_SCORE_WEDTHU if c_dow_n in (2, 3) else MIN_SCORE
             min_sc += 10 if state.get('defensive_mode') else 0
-            score   = compute_score(htf_b, htf_s, sweep, ind, ds, bos_data, fvg_ob,
-                                    kill, adr_pct, atr_p, consol_ok, tl > 0)
+            score = compute_score(htf_b, htf_s, sweep, ind, ds, bos_data, fvg_ob,
+                                  kill, adr_pct, atr_p, consol_ok, tl > 0)
             if score['total'] < min_sc: cnt['score'] += 1; continue
             buf = atr * 0.20
             if action == 'SELL':
@@ -1681,33 +1755,35 @@ async def run_backtesting():
                 'rr_tp1': round(abs(tp1-c_price)/sl_dist,2), 'rr_tp2': sim['rr_real'],
                 'result': sim['result'], 'outcome': sim['outcome'], 'confidence': conf,
                 'score': score['total'], 'sweepLevel': sweep.get('level',0),
-                'sweep_level_type': sweep.get('level_type',''), 'sweep_quality': sweep.get('quality',''),
-                'wick_pct': sweep.get('wick_pct',0), 'htf_bias': htf_b, 'htf_strength': round(htf_s,2),
-                'bos_quality': bos_data[1], 'displacement_strength': ds, 'inducement_quality': ind[1],
+                'sweep_level_type': sweep.get('level_type',''),
+                'sweep_quality': sweep.get('quality',''),
+                'wick_pct': sweep.get('wick_pct',0),
+                'htf_bias': htf_b, 'htf_strength': round(htf_s,2),
+                'bos_quality': bos_data[1], 'displacement_strength': ds,
+                'inducement_quality': ind[1],
                 'liq_obj_level': round(tl,5) if tl else 0, 'liq_obj_type': tt,
                 'adr_pct': round(adr_pct,2), 'atr_pips': round(atr_p,1),
-                'velas_duration': sim['velas_duration'], 'sl_moved_be': sim['sl_moved_be'],
-                'be_vela': sim['be_vela'], 'be_reason': sim.get('be_reason',''),
-                'partial_closed': sim['partial_closed'], 'pnl_parcial': sim['pnl_parcial'],
-                'tp1_vela': sim['tp1_vela'], 'gestion': sim['gestion'], 'news_blocked': nb,
+                'velas_duration': sim['velas_duration'],
+                'sl_moved_be': sim['sl_moved_be'], 'be_vela': sim['be_vela'],
+                'be_reason': sim.get('be_reason',''),
+                'partial_closed': sim['partial_closed'],
+                'pnl_parcial': sim['pnl_parcial'],
+                'tp1_vela': sim['tp1_vela'], 'gestion': sim['gestion'],
+                'news_blocked': nb,
                 'score_factors': ' | '.join(f"{k}:{v['pts']:.0f}" for k, v in score['factors'].items()),
-                'confirmaciones': (f"Sweep {sweep.get('quality','')} @ {sweep.get('level_type','')} | "
-                                   f"HTF {htf_b} | BOS {bos_data[1]} | Disp {ds} | Ind {ind[1]} | "
-                                   f"Score {score['total']}/100"),
+                'confirmaciones': f"Sweep {sweep.get('quality','')} | HTF {htf_b} | BOS {bos_data[1]}",
                 'ceo_analysis': analysis, 'ceo_recommendation': rec,
-                'failure_factors': ', '.join(fail_factors) if fail_factors else 'N/A',
-            })
-        log.info(f'[BT] {len(all_trades)} trades | sesion={cnt["sesion"]} news={cnt["news"]} '
-                 f'no_sweep={cnt["no_sweep"]} score={cnt["score"]}')
+                'failure_factors': ', '.join(fail_factors) if fail_factors else 'N/A'})
+        log.info(f'[BT] {len(all_trades)} trades')
     except Exception as e:
         log.error(f'[BT] Error: {e}', exc_info=True)
     if all_trades:
         wins = [t for t in all_trades if t['result'] > 0]
-        bes  = [t for t in all_trades if t['outcome'] == 'BE']
-        pnl  = sum(t['result'] for t in all_trades); wr = len(wins) / len(all_trades)
-        gw   = sum(t['result'] for t in all_trades if t['result'] > 0)
-        gl   = abs(sum(t['result'] for t in all_trades if t['result'] < 0))
-        pf   = round(gw / gl, 2) if gl > 0 else 0
+        bes = [t for t in all_trades if t['outcome'] == 'BE']
+        pnl = sum(t['result'] for t in all_trades); wr = len(wins) / len(all_trades)
+        gw = sum(t['result'] for t in all_trades if t['result'] > 0)
+        gl = abs(sum(t['result'] for t in all_trades if t['result'] < 0))
+        pf = round(gw / gl, 2) if gl > 0 else 0
         equity = balance; peak = equity; max_dd = 0.0
         for t in sorted(all_trades, key=lambda x: x['date']):
             equity += t['result']
@@ -1718,27 +1794,56 @@ async def run_backtesting():
             'total_trades': len(all_trades), 'wins': len(wins),
             'losses': len(all_trades) - len(wins) - len(bes), 'breakeven': len(bes),
             'win_rate': round(wr,4), 'total_pnl': round(pnl,2), 'profit_factor': pf,
-            'max_drawdown': round(max_dd*100,2), 'trades_per_week': round(len(all_trades)/52,1),
-        }
+            'max_drawdown': round(max_dd*100,2),
+            'trades_per_week': round(len(all_trades)/52,1)}
         all_trades.sort(key=lambda x: x['date'], reverse=True)
-        bt_state['trades']   = all_trades[:300]
+        bt_state['trades'] = all_trades[:300]
         bt_state['last_run'] = now_utc().isoformat()
-        bt_state['log']      = trade_log
+        bt_state['log'] = trade_log
         storage_write_json('backtest/latest_run.json',
                            {'summary': bt_state['summary'], 'trades': bt_state['trades'],
                             'last_run': bt_state['last_run']})
-        log.info(f'[BT] COMPLETADO: {len(all_trades)} trades | WR:{wr:.1%} | PnL:${pnl:.0f} | '
-                 f'PF:{pf} | DD:{max_dd:.1%}')
+        log.info(f'[BT] COMPLETADO: {len(all_trades)} trades WR:{wr:.1%}')
     bt_state['running'] = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 15: API ENDPOINTS (FastAPI)
+# SECCION 15: SCHEDULED REPORTS (NUEVO v2.1)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def scheduled_pre_london_report():
+    log.info('[NOTIFY] Generando reporte pre-Londres 7AM')
+    try:
+        try:
+            acc = await get_account()
+            state['balance'] = float(acc.get('balance', state['balance']))
+        except Exception: pass
+        if not state.get('last_analysis'):
+            await run_analysis(auto_execute=False)
+        subj, html = build_pre_london_report()
+        ok = await send_email(subj, html)
+        log.info(f'[NOTIFY] Pre-Londres: {"OK" if ok else "FAIL"}')
+    except Exception as e:
+        log.error(f'[NOTIFY] Pre-Londres error: {e}', exc_info=True)
+
+async def scheduled_ny_open_report():
+    log.info('[NOTIFY] Generando reporte NY Open 9AM')
+    try:
+        await run_analysis(auto_execute=False)
+        subj, html = build_ny_open_report()
+        ok = await send_email(subj, html)
+        log.info(f'[NOTIFY] NY Open: {"OK" if ok else "FAIL"}')
+    except Exception as e:
+        log.error(f'[NOTIFY] NY Open error: {e}', exc_info=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECCION 16: API ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.get('/health')
 async def health():
-    return {'status': 'ok', 'version': '2.0', 'pair': 'EUR/USD',
+    return {'status': 'ok', 'version': '2.1', 'pair': 'EUR/USD',
             'trading_paused': state['trading_paused'],
             'pause_reason': state['pause_reason'],
             'consecutive_losses': state['consecutive_losses'],
@@ -1750,14 +1855,17 @@ async def health():
             'edge_score': memory.get('edge_score', 100.0),
             'min_score': MIN_SCORE, 'score_weights': SCORE_WEIGHTS,
             'cognitive_disabled': cognitive_is_disabled(),
-            'data_path': DATA_PATH,
-            'data_path_exists': Path(DATA_PATH).exists(),
-            }
+            'data_path': DATA_PATH, 'data_path_exists': Path(DATA_PATH).exists(),
+            'notifications': {'enabled': NOTIFICATIONS_ENABLED,
+                              'configured': bool(RESEND_API_KEY),
+                              'email_to': NOTIFY_EMAIL_TO,
+                              'email_from': NOTIFY_EMAIL_FROM},
+            'auto_execute': AUTO_EXECUTE}
 
 @app.get('/dashboard')
 async def dashboard():
-    ict   = state.get('last_analysis', {}).get('ict', {})
-    dec   = state.get('last_decision', {}) or {}
+    ict = state.get('last_analysis', {}).get('ict', {})
+    dec = state.get('last_decision', {}) or {}
     score = ict.get('score', {}); sweep = ict.get('sweep', {})
     struct = ict.get('structure', {}); fvgob = ict.get('fvg_ob', {})
     return {'ts': state.get('last_update', now_utc().isoformat()),
@@ -1779,14 +1887,12 @@ async def dashboard():
                 'killzone': dec.get('killzone',''),
                 'htf_bias': dec.get('htf_bias',''),
                 'liq_target': dec.get('liq_target',{}),
-                # Campos NUEVOS Fase 1
                 'cognitive_veto': dec.get('cognitive_veto', False),
                 'cognitive_multiplier': dec.get('cognitive_multiplier'),
                 'narrative_quality': dec.get('narrative_quality'),
                 'narrative': dec.get('narrative', ''),
                 'anomalies': dec.get('anomalies', []),
-                'regime_assessment': dec.get('regime_assessment'),
-            },
+                'regime_assessment': dec.get('regime_assessment')},
             'ict': {
                 'sweep_detected': sweep.get('detected',False),
                 'sweep_direction': sweep.get('direction',''),
@@ -1825,14 +1931,11 @@ async def dashboard():
                 'recent_trades_count': len(memory.get('recent_trades',[])),
                 'defensive_mode': state.get('defensive_mode',False),
                 'defensive_reason': state.get('defensive_reason','')},
-            'learning': {
-                'trades_analyzed': len(bt_state.get('log',[])),
-                'current_weights': SCORE_WEIGHTS},
-            'cognitive': {
-                'disabled': cognitive_is_disabled(),
-                'recent_calls': len(_cognitive_health.get('calls', [])),
-                'recent_failures': len(_cognitive_health.get('failures', [])),
-            }}
+            'learning': {'trades_analyzed': len(bt_state.get('log',[])),
+                         'current_weights': SCORE_WEIGHTS},
+            'cognitive': {'disabled': cognitive_is_disabled(),
+                          'recent_calls': len(_cognitive_health.get('calls', [])),
+                          'recent_failures': len(_cognitive_health.get('failures', []))}}
 
 @app.get('/prices')
 async def prices():
@@ -1851,8 +1954,7 @@ async def candles_endpoint(tf: str = 'H1', count: int = 80):
     cache_key = f'{tf}_{count}'
     ttl = _CANDLES_CACHE_TTL.get(tf, 300)
     cached = _candles_cache.get(cache_key)
-    if cached and (time.time() - cached['ts'] < ttl):
-        return cached['data']
+    if cached and (time.time() - cached['ts'] < ttl): return cached['data']
     try:
         candles_raw = await get_candles(tf, count)
         result = []
@@ -1921,18 +2023,12 @@ async def live_trades(outcome: Optional[str]=None, month: Optional[str]=None, da
 
 @app.get('/audit/decisions')
 async def audit_decisions(month: Optional[str] = None, limit: int = 100):
-    """Lee el audit log mensual (Fase 1 - trazabilidad)."""
-    if not month:
-        et = now_et()
-        month = et.strftime('%Y-%m')
-    relpath = f'audit/decisions_{month}.jsonl'
-    records = storage_read_jsonl(relpath, limit=limit)
+    if not month: month = now_et().strftime('%Y-%m')
+    records = storage_read_jsonl(f'audit/decisions_{month}.jsonl', limit=limit)
     return {'month': month, 'count': len(records), 'decisions': list(reversed(records))}
 
 @app.get('/audit/cognitive-health')
 async def audit_cognitive_health():
-    """Estado actual del cognitive layer y circuit breaker."""
-    now_ts = time.time()
     return {'disabled': cognitive_is_disabled(),
             'disabled_until': _cognitive_health['disabled_until'],
             'recent_calls_count': len(_cognitive_health['calls']),
@@ -1941,34 +2037,80 @@ async def audit_cognitive_health():
                                 if _cognitive_health['calls'] else 0)}
 
 
+# Endpoints de notificacion (NUEVOS v2.1)
+
+@app.get('/notify/test')
+async def notify_test():
+    """Envia correo de prueba para validar Resend"""
+    et = now_et()
+    body = f"""<div class="card"><div class="label">Correo de Prueba</div>
+<div style="margin:10px 0;font-size:14px;color:#00e87a">✓ Sistema de notificaciones funcionando correctamente</div></div>
+<div class="card"><div class="label">Configuración</div>
+<div class="row"><span class="k">Versión sistema</span><span class="v">2.1</span></div>
+<div class="row"><span class="k">Destino</span><span class="v">{NOTIFY_EMAIL_TO}</span></div>
+<div class="row"><span class="k">Remitente</span><span class="v">{NOTIFY_EMAIL_FROM}</span></div>
+<div class="row"><span class="k">Resend API</span><span class="v green">configurada</span></div>
+<div class="row"><span class="k">Notificaciones habilitadas</span><span class="v {'green' if NOTIFICATIONS_ENABLED else 'red'}">{NOTIFICATIONS_ENABLED}</span></div>
+<div class="row"><span class="k">Auto Execute</span><span class="v {'green' if AUTO_EXECUTE else 'gold'}">{AUTO_EXECUTE}</span></div>
+<div class="row"><span class="k">Generado</span><span class="v">{et.strftime('%H:%M:%S ET')}</span></div></div>
+<div class="card"><div class="label">Reportes Programados</div>
+<div class="value" style="font-size:11px;line-height:1.8">
+🌅 <strong>07:00 AM ET</strong> - Briefing Pre-Londres<br>
+🌇 <strong>09:00 AM ET</strong> - NY Open Analysis<br>
+🟢 <strong>Al abrir trade</strong> - Notificación de entrada<br>
+🔴 <strong>Al cerrar trade</strong> - Outcome + análisis<br>
+🟡 <strong>Veto cognitivo</strong> - Cuando Claude rechaza setup<br>
+⚠️ <strong>Alertas críticas</strong> - Daily loss / modo defensivo</div></div>"""
+    subj = '🧪 TPDCM-IA · Test de Notificaciones'
+    html = _email_wrapper('🧪 Test de Notificaciones', body)
+    ok = await send_email(subj, html)
+    return {'status': 'sent' if ok else 'failed',
+            'email_to': NOTIFY_EMAIL_TO,
+            'configured': bool(RESEND_API_KEY),
+            'enabled': NOTIFICATIONS_ENABLED}
+
+@app.get('/notify/pre-london-report')
+async def notify_pre_london_now():
+    asyncio.create_task(scheduled_pre_london_report())
+    return {'status': 'triggered', 'report': 'pre_london_7am'}
+
+@app.get('/notify/ny-open-report')
+async def notify_ny_open_now():
+    asyncio.create_task(scheduled_ny_open_report())
+    return {'status': 'triggered', 'report': 'ny_open_9am'}
+
+@app.get('/notify/history')
+async def notify_history(limit: int = 50):
+    records = storage_read_jsonl('notifications/sent.jsonl', limit=limit)
+    return {'count': len(records), 'sent': list(reversed(records))}
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECCION 16: STARTUP + SCHEDULER
+# SECCION 17: STARTUP + SCHEDULER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.on_event('startup')
 async def startup():
-    # Crear estructura de carpetas en el volumen
     _ensure_data_dirs()
     log.info(f'[STARTUP] Data volume: {DATA_PATH} (exists: {Path(DATA_PATH).exists()})')
+    log.info(f'[STARTUP] AUTO_EXECUTE={AUTO_EXECUTE} NOTIFICATIONS={NOTIFICATIONS_ENABLED}')
 
     try:
         acc = await get_account()
         state['balance'] = float(acc.get('balance', 110000.0))
         log.info(f'[STARTUP] Balance: ${state["balance"]:,.2f}')
-    except Exception as e:
-        log.error(f'[STARTUP] Balance: {e}')
+    except Exception as e: log.error(f'[STARTUP] Balance: {e}')
     try:
         trades = await get_open_trades()
         state['open_trades'] = trades
         et = now_et()
         if (et.hour >= SESSION_END_ET or et.hour < SESSION_START_ET or et.weekday() in (5,6)) and trades:
             for t in trades:
-                try: await close_trade(t['id']); log.info(f'[STARTUP] Cerrado: {t["id"]}')
+                try: await close_trade(t['id'])
                 except Exception as e: log.error(f'[STARTUP] {e}')
         else:
             log.info(f'[STARTUP] {len(trades)} trades abiertos')
-    except Exception as e:
-        log.error(f'[STARTUP] Trades: {e}')
+    except Exception as e: log.error(f'[STARTUP] Trades: {e}')
 
     sched = AsyncIOScheduler(timezone=ZoneInfo('America/New_York'))
     sched.add_job(run_analysis,    'interval', hours=1,   id='analysis', args=[AUTO_EXECUTE])
@@ -1977,27 +2119,30 @@ async def startup():
     sched.add_job(run_analysis, CronTrigger(hour=3,  minute=15, timezone=ZoneInfo('America/New_York')), id='london', args=[False])
     sched.add_job(run_analysis, CronTrigger(hour=8,  minute=0,  timezone=ZoneInfo('America/New_York')), id='ny',     args=[AUTO_EXECUTE])
     sched.add_job(run_analysis, CronTrigger(hour=10, minute=0,  timezone=ZoneInfo('America/New_York')), id='ny2',    args=[AUTO_EXECUTE])
+    # Reportes por correo (NUEVO v2.1)
+    sched.add_job(scheduled_pre_london_report, CronTrigger(hour=7, minute=0,
+                  timezone=ZoneInfo('America/New_York')), id='report_pre_london')
+    sched.add_job(scheduled_ny_open_report,    CronTrigger(hour=9, minute=0,
+                  timezone=ZoneInfo('America/New_York')), id='report_ny_open')
     sched.start()
-    log.info('[SCHEDULER] Activo - analisis/hora | monitor/5min | BT 3:30AM')
+    log.info('[SCHEDULER] Activo - analisis/hora | monitor/5min | reportes 7AM y 9AM ET | BT 3:30AM')
 
     async def delayed_start():
         await asyncio.sleep(5)
         log.info('[INIT] Analisis inicial...')
         try: await run_analysis(auto_execute=AUTO_EXECUTE)
         except Exception as e: log.error(f'[INIT] {e}')
-        bt_flag = f'{DATA_PATH}/bt_done.flag'
-        should_bt = True
+        bt_flag = f'{DATA_PATH}/bt_done.flag'; should_bt = True
         try:
-            with open(bt_flag) as f:
-                last = float(f.read().strip())
+            with open(bt_flag) as f: last = float(f.read().strip())
             if time.time() - last < 21600: should_bt = False
         except Exception: pass
         if should_bt:
             await asyncio.sleep(3)
-            log.info('[INIT] Backtesting institucional...')
+            log.info('[INIT] Backtesting...')
             await run_backtesting()
             try:
                 with open(bt_flag, 'w') as f: f.write(str(time.time()))
             except Exception: pass
     asyncio.create_task(delayed_start())
-    log.info('TPDCM-IA v2.0 - Decision Gate + Cognitive Layer - Sistema activo')
+    log.info('TPDCM-IA v2.1 - Notification Layer + Auto-Execute - Sistema activo')
