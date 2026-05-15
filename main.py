@@ -1,29 +1,29 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-TPDCM-IA v2.2 — Trading Platform Deep Claude Machine Intelligence
+TPDCM-IA v2.3 — Trading Platform Deep Claude Machine Intelligence
 EUR/USD Institucional · Prop Firm System
 ═══════════════════════════════════════════════════════════════════════════════
 
+CAMBIOS v2.2 -> v2.3 (MEJORAS ROBUSTEZ):
+  + Healthcheck interno: monitoreo de scheduler
+  + Alerta automatica si scheduler no ejecuta analisis en 2h
+  + Alerta de drawdown critico (>5% en 7 dias)
+  + Reporte semanal estadistico automatico (domingos 18:00 ET)
+  + Endpoint /claude-conversation: chat libre con Claude sobre mercado
+  + Endpoint /claude-analysis-history: historial de narrativas
+  + Endpoint /healthcheck-monitor: monitoreo activo
+  + Endpoint /weekly-stats: stats semanales sin Claude
+
 CAMBIOS v2.1 -> v2.2 (FASE 2):
-  + Regime Detector (Python deterministico)
-    - type: trending / ranging / expansion / compression / choppy
-    - volatility_z score (desviacion vs media historica)
-    - trending_score 0-1
-    - regime_quality: clean / noisy / choppy
-  + Anomaly Features (Python detecta, Claude interpreta)
-    - consecutive_long_wicks
-    - mechas_consecutivas
-    - gap_post_news
-    - sweep_without_retest
-    - volume_dissonance
-    - displacement_velocity
-  + Contexto enriquecido a Claude (regime + anomalies)
-  + /dashboard expone regime y anomalies
-  + /health version 2.2
+  + Regime Detector + Anomaly Features
+  + Contexto enriquecido a Claude
+  + Reportes 7AM/9AM con seccion Regimen
+  + Endpoint /regime
+  + /dashboard expone regime + anomalies
 
 CAMBIOS v2.0 -> v2.1:
   + Notification Layer (Resend API)
-  + Reporte 7:00 AM ET, 9:00 AM ET
+  + Reportes 7AM y 9AM ET
   + Notificacion trade open/close + veto + alertas criticas
 
 CAMBIOS v1.x -> v2.0:
@@ -109,7 +109,7 @@ OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
 
 def _ensure_data_dirs():
     base = Path(DATA_PATH)
-    for d in ['trades', 'audit', 'memory', 'legacy', 'backtest', 'cognitive', 'regime', 'notifications']:
+    for d in ['trades', 'audit', 'memory', 'legacy', 'backtest', 'cognitive', 'regime', 'notifications', 'claude_conversations']:
         try: (base / d).mkdir(parents=True, exist_ok=True)
         except Exception as e: log.warning(f'[STORAGE] No se pudo crear {d}: {e}')
 
@@ -496,7 +496,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.2.0')
+app = FastAPI(title='TPDCM-IA', version='2.3.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -2176,13 +2176,444 @@ async def scheduled_ny_open_report():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SECCION 15b: HEALTH MONITORING + ALERTAS AUTOMATICAS (NUEVO v2.3)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_last_alert_sent = {}  # cache para no spamear alertas
+
+async def healthcheck_monitor():
+    """
+    Verifica si el sistema ha ejecutado analisis recientemente.
+    Si lleva mas de 2 horas sin analisis en horario de mercado -> alerta critica.
+    """
+    try:
+        now = now_et()
+        # Solo aplica en horario de mercado (lunes-viernes, 3 AM - 5 PM ET)
+        if now.weekday() >= 5:  # Sabado o Domingo
+            return
+        if now.hour < 3 or now.hour >= 17:  # Fuera de horario activo
+            return
+
+        last_update = state.get('last_update')
+        if not last_update:
+            return
+
+        try:
+            last_dt = datetime.fromisoformat(last_update.replace('Z', '+00:00'))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            now_utc = datetime.now(timezone.utc)
+            hours_since = (now_utc - last_dt).total_seconds() / 3600
+        except Exception as e:
+            log.warning(f'[HEALTHCHECK] Error parsing date: {e}')
+            return
+
+        if hours_since >= 2.0:
+            alert_key = 'no_analysis_2h'
+            last_sent = _last_alert_sent.get(alert_key, 0)
+            if time.time() - last_sent > 3600:  # No repetir mas de 1 vez/hora
+                log.warning(f'[HEALTHCHECK] Sin analisis hace {hours_since:.1f}h')
+                await _send_critical_alert(
+                    'Scheduler Inactivo',
+                    f'El sistema lleva {hours_since:.1f} horas sin ejecutar analisis en horario de mercado.',
+                    {'hours_since_last': round(hours_since, 1),
+                     'last_update': last_update,
+                     'recommendation': 'Revisar logs de Railway para identificar el problema'}
+                )
+                _last_alert_sent[alert_key] = time.time()
+    except Exception as e:
+        log.error(f'[HEALTHCHECK] {e}')
+
+
+async def drawdown_monitor():
+    """
+    Verifica si el drawdown semanal supera el 5%.
+    Si lo supera -> alerta critica.
+    """
+    try:
+        # Obtener trades de los ultimos 7 dias
+        if not Path(f'{DATA_PATH}/trades.jsonl').exists():
+            return
+        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+        weekly_pnl = 0.0
+        weekly_trades = 0
+        with open(f'{DATA_PATH}/trades.jsonl') as f:
+            for line in f:
+                try:
+                    t = json.loads(line)
+                    closed = t.get('closed_at') or t.get('opened_at')
+                    if not closed:
+                        continue
+                    closed_dt = datetime.fromisoformat(closed.replace('Z', '+00:00'))
+                    if closed_dt.tzinfo is None:
+                        closed_dt = closed_dt.replace(tzinfo=timezone.utc)
+                    if closed_dt >= cutoff:
+                        weekly_pnl += float(t.get('result_usd', 0))
+                        weekly_trades += 1
+                except Exception:
+                    continue
+
+        if weekly_trades == 0:
+            return
+
+        # Calcular drawdown semanal
+        initial_balance = state.get('balance', 100000) - weekly_pnl  # balance al inicio de semana
+        if initial_balance <= 0:
+            return
+        weekly_dd_pct = (weekly_pnl / initial_balance) * 100
+
+        if weekly_dd_pct <= -5.0:
+            alert_key = 'drawdown_5pct'
+            last_sent = _last_alert_sent.get(alert_key, 0)
+            if time.time() - last_sent > 21600:  # No repetir mas de 1 vez/6h
+                log.warning(f'[DD-MONITOR] DD semanal: {weekly_dd_pct:.2f}%')
+                await _send_critical_alert(
+                    'Drawdown Critico Semanal',
+                    f'Drawdown de {abs(weekly_dd_pct):.2f}% en los ultimos 7 dias ({weekly_trades} trades).',
+                    {'weekly_pnl_usd': round(weekly_pnl, 2),
+                     'weekly_drawdown_pct': round(weekly_dd_pct, 2),
+                     'trades_last_7d': weekly_trades,
+                     'current_balance': round(state.get('balance', 0), 2),
+                     'recommendation': 'Considerar pausar trading manualmente y revisar estadisticas'}
+                )
+                _last_alert_sent[alert_key] = time.time()
+    except Exception as e:
+        log.error(f'[DD-MONITOR] {e}')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECCION 15c: REPORTE SEMANAL ESTADISTICO (NUEVO v2.3)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def compute_weekly_stats():
+    """Calcula estadisticas de la ultima semana."""
+    stats = {
+        'total_trades': 0,
+        'wins': 0,
+        'losses': 0,
+        'be': 0,
+        'pnl_total': 0.0,
+        'win_rate': 0.0,
+        'best_trade': None,
+        'worst_trade': None,
+        'best_trade_pnl': 0.0,
+        'worst_trade_pnl': 0.0,
+        'by_killzone': {},
+        'by_day': {},
+        'avg_score': 0.0,
+        'avg_confidence': 0.0,
+        'cognitive_vetos': 0,
+        'total_decisions': 0,
+        'cognitive_validations': 0,
+    }
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    scores = []
+    confidences = []
+
+    # Trades cerrados
+    if Path(f'{DATA_PATH}/trades.jsonl').exists():
+        with open(f'{DATA_PATH}/trades.jsonl') as f:
+            for line in f:
+                try:
+                    t = json.loads(line)
+                    closed = t.get('closed_at') or t.get('opened_at')
+                    if not closed:
+                        continue
+                    closed_dt = datetime.fromisoformat(closed.replace('Z', '+00:00'))
+                    if closed_dt.tzinfo is None:
+                        closed_dt = closed_dt.replace(tzinfo=timezone.utc)
+                    if closed_dt < cutoff:
+                        continue
+                    stats['total_trades'] += 1
+                    pnl = float(t.get('result_usd', 0))
+                    stats['pnl_total'] += pnl
+                    outcome = t.get('outcome', '')
+                    if outcome in ('TP', 'TP2'):
+                        stats['wins'] += 1
+                    elif outcome == 'SL':
+                        stats['losses'] += 1
+                    elif outcome == 'BE':
+                        stats['be'] += 1
+                    if pnl > stats['best_trade_pnl']:
+                        stats['best_trade_pnl'] = pnl
+                        stats['best_trade'] = t
+                    if pnl < stats['worst_trade_pnl']:
+                        stats['worst_trade_pnl'] = pnl
+                        stats['worst_trade'] = t
+                    kz = t.get('killzone', 'unknown')
+                    if kz not in stats['by_killzone']:
+                        stats['by_killzone'][kz] = {'trades': 0, 'wins': 0, 'pnl': 0}
+                    stats['by_killzone'][kz]['trades'] += 1
+                    stats['by_killzone'][kz]['pnl'] += pnl
+                    if outcome in ('TP', 'TP2'):
+                        stats['by_killzone'][kz]['wins'] += 1
+                    day = closed[:10]
+                    if day not in stats['by_day']:
+                        stats['by_day'][day] = 0
+                    stats['by_day'][day] += pnl
+                except Exception:
+                    continue
+
+    if stats['total_trades'] > 0:
+        stats['win_rate'] = stats['wins'] / stats['total_trades']
+
+    # Decisiones de auditoria
+    month_key = datetime.now(timezone.utc).strftime('%Y-%m')
+    audit_file = f'{DATA_PATH}/audit/decisions_{month_key}.jsonl'
+    if Path(audit_file).exists():
+        with open(audit_file) as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                    ts = d.get('timestamp_utc', '')
+                    if not ts:
+                        continue
+                    d_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    if d_dt.tzinfo is None:
+                        d_dt = d_dt.replace(tzinfo=timezone.utc)
+                    if d_dt < cutoff:
+                        continue
+                    stats['total_decisions'] += 1
+                    if d.get('cognitive_called'):
+                        stats['cognitive_validations'] += 1
+                    if d.get('cognitive_veto'):
+                        stats['cognitive_vetos'] += 1
+                    s = d.get('technical_score', 0)
+                    c = d.get('technical_confidence', 0)
+                    if s > 0:
+                        scores.append(s)
+                    if c > 0:
+                        confidences.append(c)
+                except Exception:
+                    continue
+
+    if scores:
+        stats['avg_score'] = sum(scores) / len(scores)
+    if confidences:
+        stats['avg_confidence'] = sum(confidences) / len(confidences)
+
+    return stats
+
+
+def build_weekly_stats_report():
+    """Genera HTML del reporte semanal sin Claude."""
+    stats = compute_weekly_stats()
+
+    wr = stats['win_rate'] * 100
+    wr_color = 'green' if wr >= 55 else 'gold' if wr >= 45 else 'red'
+    pnl_color = 'green' if stats['pnl_total'] >= 0 else 'red'
+
+    best_html = ''
+    if stats['best_trade']:
+        bt = stats['best_trade']
+        best_html = f"""<div class="card"><div class="label">🏆 Mejor Trade de la Semana</div>
+<div class="row"><span class="k">Fecha / Hora</span><span class="v">{bt.get('opened_at', '')[:16]}</span></div>
+<div class="row"><span class="k">Accion</span><span class="v gold">{bt.get('action', '')}</span></div>
+<div class="row"><span class="k">Outcome</span><span class="v green">{bt.get('outcome', '')}</span></div>
+<div class="row"><span class="k">P&L</span><span class="v green">+${stats['best_trade_pnl']:,.2f}</span></div>
+<div class="row"><span class="k">Killzone</span><span class="v">{bt.get('killzone', '')}</span></div></div>"""
+
+    worst_html = ''
+    if stats['worst_trade'] and stats['worst_trade_pnl'] < 0:
+        wt = stats['worst_trade']
+        worst_html = f"""<div class="card"><div class="label">📉 Peor Trade de la Semana</div>
+<div class="row"><span class="k">Fecha / Hora</span><span class="v">{wt.get('opened_at', '')[:16]}</span></div>
+<div class="row"><span class="k">Accion</span><span class="v gold">{wt.get('action', '')}</span></div>
+<div class="row"><span class="k">Outcome</span><span class="v red">{wt.get('outcome', '')}</span></div>
+<div class="row"><span class="k">P&L</span><span class="v red">${stats['worst_trade_pnl']:,.2f}</span></div>
+<div class="row"><span class="k">Killzone</span><span class="v">{wt.get('killzone', '')}</span></div></div>"""
+
+    kz_html = '<div class="card"><div class="label">📊 Estadisticas por Killzone</div>'
+    for kz, s in stats['by_killzone'].items():
+        kz_wr = (s['wins'] / s['trades'] * 100) if s['trades'] > 0 else 0
+        kz_html += f'<div class="row"><span class="k">{kz}</span><span class="v">{s["trades"]} trades · WR {kz_wr:.0f}% · ${s["pnl"]:+,.2f}</span></div>'
+    if not stats['by_killzone']:
+        kz_html += '<div style="color:#5a7a68; font-style:italic">Sin trades esta semana</div>'
+    kz_html += '</div>'
+
+    body = f"""
+<div class="card"><div class="label">📅 Semana del {(datetime.now(timezone.utc) - timedelta(days=7)).strftime('%d %b')} al {datetime.now(timezone.utc).strftime('%d %b %Y')}</div>
+<div style="display:flex; gap:20px; margin-top:8px; flex-wrap:wrap">
+<div><div style="font-size:9px;color:#5a7a68;letter-spacing:0.1em">TRADES TOTALES</div><div style="font-family:monospace;font-size:24px;font-weight:700">{stats['total_trades']}</div></div>
+<div><div style="font-size:9px;color:#5a7a68;letter-spacing:0.1em">WIN RATE</div><div style="font-family:monospace;font-size:24px;font-weight:700" class="{wr_color}">{wr:.0f}%</div></div>
+<div><div style="font-size:9px;color:#5a7a68;letter-spacing:0.1em">P&L SEMANAL</div><div style="font-family:monospace;font-size:24px;font-weight:700" class="{pnl_color}">${stats['pnl_total']:+,.2f}</div></div>
+</div>
+<div class="row" style="margin-top:14px"><span class="k">Wins / Losses / BE</span><span class="v">{stats['wins']} / {stats['losses']} / {stats['be']}</span></div>
+<div class="row"><span class="k">Total decisiones tomadas</span><span class="v">{stats['total_decisions']}</span></div>
+<div class="row"><span class="k">Validaciones cognitivas</span><span class="v">{stats['cognitive_validations']}</span></div>
+<div class="row"><span class="k">Vetos cognitivos</span><span class="v">{stats['cognitive_vetos']}</span></div>
+<div class="row"><span class="k">Score promedio</span><span class="v">{stats['avg_score']:.1f}/100</span></div>
+<div class="row"><span class="k">Confianza promedio</span><span class="v">{stats['avg_confidence']*100:.0f}%</span></div>
+</div>
+{best_html}{worst_html}{kz_html}
+<div class="card"><div class="label">📋 Notas</div>
+<div style="font-size:11px;color:#c4d8cc;line-height:1.6">
+• Este es el reporte automatico determinista. NO usa Claude para analisis cualitativo.<br>
+• El Weekly Cognitive Review con Claude Opus se activara cuando acumulen 20-30 trades reales.<br>
+• Recordatorio: el sistema esta en demo OANDA con balance ~${state.get('balance', 0):,.2f}.</div></div>"""
+
+    subject = f'TPDCM-IA · Reporte Semanal · {stats["total_trades"]} trades · WR {wr:.0f}% · ${stats["pnl_total"]:+,.2f}'
+    return subject, _email_wrapper('📊 Reporte Semanal', body)
+
+
+async def scheduled_weekly_stats_report():
+    """Job: Domingos 18:00 ET, envia reporte semanal."""
+    try:
+        subject, html = build_weekly_stats_report()
+        await send_email(subject, html, category='weekly_stats_report')
+        log.info('[WEEKLY-STATS] Reporte semanal enviado')
+    except Exception as e:
+        log.error(f'[WEEKLY-STATS] Error: {e}')
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECCION 15d: CONVERSACION LIBRE CON CLAUDE (NUEVO v2.3)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+CHAT_SYSTEM_PROMPT = """Eres el analista institucional senior del sistema TPDCM-IA.
+El usuario es una trader profesional que opera EUR/USD con metodologia ICT/SMC.
+Tienes acceso al estado actual completo del mercado y del sistema.
+
+Responde de forma CONCISA, PROFESIONAL y ESTRUCTURADA:
+- Maximo 250 palabras por respuesta
+- Usa lenguaje claro pero tecnico (asume que la usuaria conoce ICT)
+- Si no tienes datos suficientes, di "Sin datos suficientes para responder eso"
+- Si te preguntan por predicciones especificas, recuerda que NO predices precios futuros,
+  solo interpretas la informacion actual y los regimenes detectados
+- Usa los datos reales del contexto que recibes
+- Si te preguntan algo fuera del scope del sistema (politica, etc.), redirigir amablemente al mercado
+
+Tu personalidad: profesional, directa, util, sin exceso de cumplidos.
+"""
+
+
+async def claude_conversation(user_message: str, conversation_history: list = None) -> dict:
+    """
+    Permite al usuario conversar libremente con Claude sobre el mercado.
+    Claude tiene contexto del estado actual del sistema.
+    """
+    if not ANTHROPIC_API_KEY:
+        return {'error': 'API key no configurada', 'response': None}
+
+    # Construir contexto actual del sistema
+    ict = state.get('last_analysis', {}).get('ict', {})
+    dec = state.get('last_decision', {}) or {}
+    regime = ict.get('regime', {})
+    anomalies = ict.get('anomalies', {})
+
+    context = f"""ESTADO ACTUAL DEL SISTEMA TPDCM-IA:
+
+Precio EUR/USD: {state.get('last_analysis', {}).get('price', 'N/A')}
+Balance: ${state.get('balance', 0):,.2f}
+Edge Score: {memory.get('edge_score', 100):.0f}/100
+Defensive Mode: {memory.get('defensive_mode', False)}
+
+ULTIMA DECISION:
+- Accion: {dec.get('action', 'HOLD')}
+- Score tecnico: {dec.get('score', 0)}/100
+- Confianza: {dec.get('confidence', 0)*100:.0f}%
+- Source: {dec.get('source', 'N/A')}
+- Cognitive veto: {dec.get('cognitive_veto', False)}
+- Narrativa Claude: {dec.get('narrative', 'N/A')}
+
+REGIMEN ACTUAL:
+- Tipo: {regime.get('type', 'unknown')}
+- Calidad: {regime.get('regime_quality', 'unknown')}
+- Volatility Z: {regime.get('volatility_z', 0):+.2f}
+- Trending score: {regime.get('trending_score', 0)*100:.0f}%
+- Momentum: {regime.get('momentum_consistency', 0)*100:.0f}%
+- Chop penalty: {regime.get('chop_penalty', 0):.2f}
+
+ANOMALIAS DETECTADAS:
+- Severidad: {anomalies.get('severity', 'none')}
+- Count: {anomalies.get('anomaly_count', 0)}
+- Activas: {anomalies.get('anomalies_active', [])}
+
+CONTEXTO ICT:
+- HTF Bias: {ict.get('htf_bias', 'N/A')} (strength {ict.get('htf_strength', 0)*100:.0f}%)
+- Killzone: {ict.get('killzone', 'fuera de sesion')}
+- ATR H1: {ict.get('atr_pips', 0):.1f} pips
+- ADR restante: {ict.get('adr_pct', 0)*100:.0f}%
+- Sweep detectado: {ict.get('sweep', {}).get('detected', False)}
+
+PERDIDAS CONSECUTIVAS: {state.get('consecutive_losses', 0)}
+RISK ACTUAL: {state.get('risk_pct_current', 1.0):.2f}%
+"""
+
+    # Construir mensajes
+    messages = []
+    if conversation_history:
+        # Limitar a ultimos 6 mensajes para no exceder contexto
+        for h in conversation_history[-6:]:
+            messages.append({'role': h.get('role', 'user'), 'content': h.get('content', '')})
+
+    messages.append({
+        'role': 'user',
+        'content': f'{context}\n\nPregunta de la usuaria: {user_message}'
+    })
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as cli:
+            r = await cli.post(
+                'https://api.anthropic.com/v1/messages',
+                headers={'x-api-key': ANTHROPIC_API_KEY,
+                         'content-type': 'application/json',
+                         'anthropic-version': '2023-06-01'},
+                json={'model': 'claude-sonnet-4-6',
+                      'max_tokens': 800,
+                      'system': CHAT_SYSTEM_PROMPT,
+                      'messages': messages}
+            )
+
+        if r.status_code != 200:
+            log.warning(f'[CHAT] HTTP {r.status_code}: {r.text[:200]}')
+            return {'error': f'API error {r.status_code}', 'response': None}
+
+        data = r.json()
+        response_text = data.get('content', [{}])[0].get('text', '')
+
+        # Guardar conversacion en historial
+        try:
+            storage_append_jsonl('claude_conversations/history.jsonl', {
+                'ts': datetime.now(timezone.utc).isoformat(),
+                'user_message': user_message,
+                'response': response_text,
+                'context_snapshot': {
+                    'price': state.get('last_analysis', {}).get('price'),
+                    'regime': regime.get('type'),
+                    'last_action': dec.get('action'),
+                    'edge_score': memory.get('edge_score', 100),
+                }
+            })
+        except Exception as e:
+            log.warning(f'[CHAT] No se pudo guardar historial: {e}')
+
+        return {
+            'response': response_text,
+            'tokens_used': data.get('usage', {}).get('output_tokens', 0),
+            'context_used': {
+                'price': state.get('last_analysis', {}).get('price'),
+                'regime_type': regime.get('type'),
+                'last_action': dec.get('action'),
+            },
+            'error': None
+        }
+    except httpx.TimeoutException:
+        log.error('[CHAT] Timeout')
+        return {'error': 'Timeout - Claude tardo mas de 30s', 'response': None}
+    except Exception as e:
+        log.error(f'[CHAT] Exception: {e}')
+        return {'error': str(e), 'response': None}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SECCION 16: API ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.get('/health')
 async def health():
     ict = state.get('last_analysis', {}).get('ict', {})
-    return {'status': 'ok', 'version': '2.2', 'pair': 'EUR/USD',
+    return {'status': 'ok', 'version': '2.3', 'pair': 'EUR/USD',
             'trading_paused': state['trading_paused'],
             'pause_reason': state['pause_reason'],
             'consecutive_losses': state['consecutive_losses'],
@@ -2455,6 +2886,121 @@ async def notify_history(limit: int = 50):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ENDPOINTS NUEVOS v2.3
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ChatMessageIn(BaseModel):
+    message: str
+    history: Optional[list] = None
+
+
+@app.post('/claude-conversation')
+async def claude_conversation_endpoint(payload: ChatMessageIn):
+    """
+    Chat libre con Claude. Recibe un mensaje del usuario y opcionalmente
+    historial de la conversacion. Retorna la respuesta de Claude con
+    el contexto actual del mercado.
+    """
+    if not payload.message or len(payload.message.strip()) < 2:
+        return {'error': 'Mensaje vacio o muy corto', 'response': None}
+    if len(payload.message) > 1000:
+        return {'error': 'Mensaje muy largo (max 1000 caracteres)', 'response': None}
+
+    result = await claude_conversation(payload.message.strip(), payload.history or [])
+    return result
+
+
+@app.get('/claude-analysis-history')
+async def claude_analysis_history(limit: int = 30):
+    """Retorna historial de narrativas que Claude ha generado en validaciones."""
+    history = []
+    now = datetime.now(timezone.utc)
+    months_to_check = [now.strftime('%Y-%m'),
+                       (now.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')]
+    for month in months_to_check:
+        audit_file = f'{DATA_PATH}/audit/decisions_{month}.jsonl'
+        if not Path(audit_file).exists():
+            continue
+        with open(audit_file) as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                    if d.get('cognitive_called') and d.get('narrative'):
+                        history.append({
+                            'timestamp_et': d.get('timestamp_et'),
+                            'timestamp_utc': d.get('timestamp_utc'),
+                            'technical_action': d.get('technical_action'),
+                            'final_action': d.get('final_action'),
+                            'technical_score': d.get('technical_score'),
+                            'cognitive_veto': d.get('cognitive_veto'),
+                            'cognitive_multiplier': d.get('cognitive_multiplier'),
+                            'narrative_quality': d.get('narrative_quality'),
+                            'narrative': d.get('narrative'),
+                            'regime_assessment': d.get('regime_assessment'),
+                            'anomalies': d.get('anomalies'),
+                            'price': d.get('price'),
+                        })
+                except Exception:
+                    continue
+    history.sort(key=lambda x: x.get('timestamp_utc', ''), reverse=True)
+    return {'history': history[:limit], 'total_with_narrative': len(history)}
+
+
+@app.get('/claude-conversation-history')
+async def claude_conversation_history(limit: int = 50):
+    """Historial de conversaciones del chat libre con Claude."""
+    if not Path(f'{DATA_PATH}/claude_conversations/history.jsonl').exists():
+        return {'history': [], 'total': 0}
+    history = []
+    with open(f'{DATA_PATH}/claude_conversations/history.jsonl') as f:
+        for line in f:
+            try: history.append(json.loads(line))
+            except: pass
+    return {'history': history[-limit:][::-1], 'total': len(history)}
+
+
+@app.get('/weekly-stats')
+async def weekly_stats_endpoint():
+    """Estadisticas de la ultima semana (sin Claude)."""
+    return compute_weekly_stats()
+
+
+@app.post('/notify/weekly-stats-now')
+async def trigger_weekly_stats():
+    """Disparar manualmente el reporte semanal."""
+    await scheduled_weekly_stats_report()
+    return {'status': 'triggered', 'report': 'weekly_stats'}
+
+
+def _is_market_active():
+    now = now_et()
+    return now.weekday() < 5 and 3 <= now.hour < 17
+
+
+@app.get('/healthcheck-monitor')
+async def healthcheck_monitor_endpoint():
+    """Estado del sistema de monitoreo de salud."""
+    last_update = state.get('last_update')
+    hours_since = None
+    if last_update:
+        try:
+            last_dt = datetime.fromisoformat(last_update.replace('Z', '+00:00'))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            hours_since = (datetime.now(timezone.utc) - last_dt).total_seconds() / 3600
+        except Exception:
+            pass
+    return {
+        'last_update': last_update,
+        'hours_since_last_analysis': round(hours_since, 2) if hours_since else None,
+        'analysis_active': hours_since is not None and hours_since < 2.0,
+        'is_market_hours': _is_market_active(),
+        'alerts_sent_recently': len(_last_alert_sent),
+        'last_alerts': _last_alert_sent,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SECCION 17: STARTUP + SCHEDULER
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2488,13 +3034,19 @@ async def startup():
     sched.add_job(run_analysis, CronTrigger(hour=3,  minute=15, timezone=ZoneInfo('America/New_York')), id='london', args=[False])
     sched.add_job(run_analysis, CronTrigger(hour=8,  minute=0,  timezone=ZoneInfo('America/New_York')), id='ny',     args=[AUTO_EXECUTE])
     sched.add_job(run_analysis, CronTrigger(hour=10, minute=0,  timezone=ZoneInfo('America/New_York')), id='ny2',    args=[AUTO_EXECUTE])
-    # Reportes por correo (NUEVO v2.1)
+    # Reportes por correo (v2.1)
     sched.add_job(scheduled_pre_london_report, CronTrigger(hour=7, minute=0,
                   timezone=ZoneInfo('America/New_York')), id='report_pre_london')
     sched.add_job(scheduled_ny_open_report,    CronTrigger(hour=9, minute=0,
                   timezone=ZoneInfo('America/New_York')), id='report_ny_open')
+    # NUEVOS v2.3: Health monitoring, drawdown monitor, weekly stats
+    sched.add_job(healthcheck_monitor, 'interval', minutes=30, id='healthcheck')
+    sched.add_job(drawdown_monitor, CronTrigger(hour=12, minute=0,
+                  timezone=ZoneInfo('America/New_York')), id='dd_monitor')
+    sched.add_job(scheduled_weekly_stats_report, CronTrigger(day_of_week='sun', hour=18, minute=0,
+                  timezone=ZoneInfo('America/New_York')), id='weekly_stats')
     sched.start()
-    log.info('[SCHEDULER] Activo - analisis/hora | monitor/5min | reportes 7AM y 9AM ET | BT 3:30AM')
+    log.info('[SCHEDULER] Activo - analisis/hora | monitor/5min | healthcheck/30min | reportes 7/9 AM | DD daily | Weekly stats domingos 18h ET')
 
     async def delayed_start():
         await asyncio.sleep(5)
@@ -2514,4 +3066,4 @@ async def startup():
                 with open(bt_flag, 'w') as f: f.write(str(time.time()))
             except Exception: pass
     asyncio.create_task(delayed_start())
-    log.info('TPDCM-IA v2.2 - Decision Gate + Cognitive Layer + Regime Detector + Notifications - Sistema activo')
+    log.info('TPDCM-IA v2.3 - Decision Gate + Cognitive + Regime + Notifications + Health Monitoring + Chat libre - Sistema activo')
