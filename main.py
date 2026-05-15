@@ -1,18 +1,35 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-TPDCM-IA v2.1 — Trading Platform Deep Claude Machine Intelligence
+TPDCM-IA v2.2 — Trading Platform Deep Claude Machine Intelligence
 EUR/USD Institucional · Prop Firm System
 ═══════════════════════════════════════════════════════════════════════════════
 
+CAMBIOS v2.1 -> v2.2 (FASE 2):
+  + Regime Detector (Python deterministico)
+    - type: trending / ranging / expansion / compression / choppy
+    - volatility_z score (desviacion vs media historica)
+    - trending_score 0-1
+    - regime_quality: clean / noisy / choppy
+  + Anomaly Features (Python detecta, Claude interpreta)
+    - consecutive_long_wicks
+    - mechas_consecutivas
+    - gap_post_news
+    - sweep_without_retest
+    - volume_dissonance
+    - displacement_velocity
+  + Contexto enriquecido a Claude (regime + anomalies)
+  + /dashboard expone regime y anomalies
+  + /health version 2.2
+
 CAMBIOS v2.0 -> v2.1:
   + Notification Layer (Resend API)
-  + Reporte 7:00 AM ET  - Pre-Londres briefing
-  + Reporte 9:00 AM ET  - NY Open analysis
-  + Notificacion entrada de trade (al abrir orden OANDA)
-  + Notificacion cierre de trade (al detectar cierre)
-  + Alerta de veto cognitivo
-  + Alerta critica (daily loss / modo defensivo / losses consec.)
-  + Endpoint /notify/test, /notify/pre-london-report, /notify/ny-open-report
+  + Reporte 7:00 AM ET, 9:00 AM ET
+  + Notificacion trade open/close + veto + alertas criticas
+
+CAMBIOS v1.x -> v2.0:
+  + Decision Gate refactor (Python autoridad final)
+  + Cognitive Layer estricto (Claude solo valida)
+  + Persistencia /data volume + audit trail completo
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -258,6 +275,13 @@ def build_pre_london_report():
 <div class="row"><span class="k">HTF Bias</span><span class="v {htf_color}">{htf_bias.upper()} ({ict.get('htf_strength', 0)*100:.0f}%)</span></div>
 <div class="row"><span class="k">ATR H1</span><span class="v">{ict.get('atr_pips', 0):.1f} pips</span></div>
 <div class="row"><span class="k">ADR restante</span><span class="v">{ict.get('adr_pct', 0)*100:.0f}%</span></div></div>
+<div class="card"><div class="label">📊 Regimen de Mercado (Fase 2)</div>
+<div class="row"><span class="k">Tipo de regimen</span><span class="v gold">{ict.get('regime', {}).get('type', 'unknown').upper()}</span></div>
+<div class="row"><span class="k">Calidad del regimen</span><span class="v">{ict.get('regime', {}).get('regime_quality', 'unknown').upper()}</span></div>
+<div class="row"><span class="k">Volatilidad (Z-score)</span><span class="v">{ict.get('regime', {}).get('volatility_z', 0):+.2f}</span></div>
+<div class="row"><span class="k">Direccionalidad</span><span class="v">{ict.get('regime', {}).get('trending_score', 0)*100:.0f}%</span></div>
+<div class="row"><span class="k">Anomalias detectadas</span><span class="v {'red' if ict.get('anomalies', {}).get('severity') == 'high' else 'gold' if ict.get('anomalies', {}).get('severity') == 'medium' else 'green'}">{ict.get('anomalies', {}).get('severity', 'none').upper()}</span></div>
+</div>
 <div class="card"><div class="label">Niveles Institucionales del Día</div>
 <div class="row"><span class="k">PDH (Previous Day High)</span><span class="v gold">{liq.get('pdh', 0):.5f}</span></div>
 <div class="row"><span class="k">PDL (Previous Day Low)</span><span class="v gold">{liq.get('pdl', 0):.5f}</span></div>
@@ -464,7 +488,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.1.0')
+app = FastAPI(title='TPDCM-IA', version='2.2.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -879,6 +903,271 @@ def compute_liquidity_target(action, levels, price, atr):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# SECCION 8b: REGIME DETECTOR (Fase 2 - NUEVO v2.2)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Clasifica automaticamente el regimen del mercado en cada vela:
+#   - trending      : mercado con direccion clara y momentum sostenido
+#   - ranging       : lateral, sin direccion definida, oscilando
+#   - expansion     : volatilidad alta saludable (post-Asia, NY Open)
+#   - compression   : volatilidad baja, antes de movimiento grande
+#   - choppy        : erratico, peligroso, evitar operar
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def detect_regime(candles_h1, candles_d1=None):
+    """
+    Clasifica el regimen actual del mercado.
+    Retorna dict con type, volatility_z, trending_score, regime_quality.
+    """
+    if len(candles_h1) < 30:
+        return {
+            'type': 'unknown',
+            'volatility_z': 0.0,
+            'trending_score': 0.0,
+            'regime_quality': 'insufficient_data',
+            'momentum_consistency': 0.0,
+        }
+
+    # Ventanas de analisis
+    window_recent = candles_h1[-12:]   # ultimas 12h
+    window_long   = candles_h1[-50:]   # ultimas 50h (~2 dias)
+
+    # === Volatility Z-score ===
+    # Compara ATR reciente vs ATR historico
+    atr_recent = compute_atr(window_recent, period=12)
+    atr_long   = compute_atr(window_long, period=50)
+    if atr_long > 0:
+        volatility_z = (atr_recent - atr_long) / atr_long
+    else:
+        volatility_z = 0.0
+    volatility_z = max(-3.0, min(3.0, volatility_z * 3))  # clamp a [-3, 3]
+
+    # === Trending Score ===
+    # Mide si las velas tienen direccion consistente
+    closes = [float(c['mid']['c']) for c in window_recent]
+    opens  = [float(c['mid']['o']) for c in window_recent]
+    bullish_candles = sum(1 for c, o in zip(closes, opens) if c > o)
+    bearish_candles = sum(1 for c, o in zip(closes, opens) if c < o)
+    total = len(closes)
+    # Trending si la mayoria va en la misma direccion
+    directional_bias = max(bullish_candles, bearish_candles) / total if total > 0 else 0.5
+    # Penaliza si las velas cambian mucho de direccion (chop)
+    direction_changes = sum(
+        1 for i in range(1, len(closes))
+        if (closes[i] - opens[i]) * (closes[i-1] - opens[i-1]) < 0
+    )
+    chop_penalty = direction_changes / max(1, total - 1)
+    trending_score = round(max(0.0, min(1.0, directional_bias - chop_penalty * 0.5)), 2)
+
+    # === Momentum Consistency ===
+    # Cuanto avanza el precio neto vs el rango total recorrido
+    high_recent = max(float(c['mid']['h']) for c in window_recent)
+    low_recent  = min(float(c['mid']['l']) for c in window_recent)
+    net_move    = abs(closes[-1] - closes[0])
+    total_range = high_recent - low_recent
+    momentum_consistency = round(net_move / total_range, 2) if total_range > 0 else 0.0
+
+    # === Regime Type Classification ===
+    # Reglas deterministas:
+    if volatility_z < -1.0 and total_range < atr_long * 4:
+        regime_type = 'compression'
+    elif volatility_z > 1.5 and trending_score > 0.65:
+        regime_type = 'expansion'
+    elif trending_score >= 0.70 and momentum_consistency >= 0.40:
+        regime_type = 'trending'
+    elif chop_penalty > 0.40 and trending_score < 0.55:
+        regime_type = 'choppy'
+    else:
+        regime_type = 'ranging'
+
+    # === Regime Quality ===
+    if chop_penalty < 0.20 and momentum_consistency >= 0.35:
+        regime_quality = 'clean'
+    elif chop_penalty < 0.40:
+        regime_quality = 'noisy'
+    else:
+        regime_quality = 'choppy'
+
+    return {
+        'type': regime_type,
+        'volatility_z': round(volatility_z, 2),
+        'trending_score': trending_score,
+        'momentum_consistency': momentum_consistency,
+        'regime_quality': regime_quality,
+        'chop_penalty': round(chop_penalty, 2),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SECCION 8c: ANOMALY FEATURES (Fase 2 - NUEVO v2.2)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Python detecta caracteristicas anomalas. Claude las interpreta.
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def detect_anomalies(candles_h1, news_events=None, candle_dt=None):
+    """
+    Detecta anomalias cuantitativas en las ultimas velas.
+    Retorna dict con multiples senales binarias o numericas.
+    """
+    if len(candles_h1) < 10:
+        return {
+            'consecutive_long_wicks': 0,
+            'mechas_consecutivas': 0,
+            'gap_post_news': False,
+            'sweep_without_retest': False,
+            'volume_dissonance': False,
+            'displacement_velocity_pips': 0.0,
+            'anomaly_count': 0,
+            'severity': 'none',
+        }
+
+    recent = candles_h1[-8:]
+    atr = compute_atr(candles_h1)
+
+    # === Mechas largas consecutivas ===
+    # Vela tiene mecha "larga" si la mecha > 60% del rango total
+    long_wick_streak = 0
+    max_streak = 0
+    for c in recent:
+        h = float(c['mid']['h']); l = float(c['mid']['l'])
+        o = float(c['mid']['o']); cc = float(c['mid']['c'])
+        rng = max(h - l, 0.00001)
+        upper_wick = h - max(o, cc)
+        lower_wick = min(o, cc) - l
+        max_wick = max(upper_wick, lower_wick)
+        wick_pct = max_wick / rng
+        if wick_pct > 0.55:
+            long_wick_streak += 1
+            max_streak = max(max_streak, long_wick_streak)
+        else:
+            long_wick_streak = 0
+
+    # === Mechas consecutivas (con direcciones opuestas - indecision) ===
+    mechas_alternantes = 0
+    for i in range(1, len(recent)):
+        c_prev = recent[i-1]; c_curr = recent[i]
+        h_p, l_p = float(c_prev['mid']['h']), float(c_prev['mid']['l'])
+        o_p, cc_p = float(c_prev['mid']['o']), float(c_prev['mid']['c'])
+        h_c, l_c = float(c_curr['mid']['h']), float(c_curr['mid']['l'])
+        o_c, cc_c = float(c_curr['mid']['o']), float(c_curr['mid']['c'])
+
+        upper_p = h_p - max(o_p, cc_p); upper_c = h_c - max(o_c, cc_c)
+        lower_p = min(o_p, cc_p) - l_p; lower_c = min(o_c, cc_c) - l_c
+
+        # Vela previa con mecha arriba seguida de vela actual con mecha abajo (o viceversa)
+        if upper_p > atr * 0.3 and lower_c > atr * 0.3:
+            mechas_alternantes += 1
+        elif lower_p > atr * 0.3 and upper_c > atr * 0.3:
+            mechas_alternantes += 1
+
+    # === Gap post-news ===
+    # Detecta si hubo gap significativo recientemente (>0.5 * ATR)
+    gap_post_news = False
+    if news_events and candle_dt:
+        for i in range(1, len(recent)):
+            prev_close = float(recent[i-1]['mid']['c'])
+            curr_open = float(recent[i]['mid']['o'])
+            gap = abs(curr_open - prev_close)
+            if gap > atr * 0.5:
+                # Verificar si hubo noticia high-impact en las ultimas 2h
+                try:
+                    candle_time = recent[i].get('time', '')
+                    candle_dt_check = datetime.fromisoformat(
+                        candle_time.replace('Z', '+00:00')
+                    ).replace(tzinfo=None)
+                    for evt in news_events:
+                        try:
+                            evt_dt = datetime.strptime(
+                                f"{evt.get('date','')} {evt.get('time','')}",
+                                '%Y-%m-%d %H:%M'
+                            )
+                            diff_min = abs((candle_dt_check - evt_dt).total_seconds() / 60)
+                            if diff_min <= 120:
+                                gap_post_news = True
+                                break
+                        except Exception:
+                            continue
+                    if gap_post_news:
+                        break
+                except Exception:
+                    pass
+
+    # === Sweep sin retest ===
+    # Si hubo sweep en ultimas 5 velas pero el precio no volvio cerca del nivel
+    sweep_without_retest = False
+    if len(candles_h1) >= 10:
+        last_5 = candles_h1[-5:]
+        prev_5 = candles_h1[-10:-5]
+        prev_high = max(float(c['mid']['h']) for c in prev_5)
+        prev_low  = min(float(c['mid']['l']) for c in prev_5)
+        last_high = max(float(c['mid']['h']) for c in last_5)
+        last_low  = min(float(c['mid']['l']) for c in last_5)
+        last_close = float(last_5[-1]['mid']['c'])
+
+        # Sweep bearish: precio rompio el high previo pero ahora esta lejos abajo
+        if last_high > prev_high and (last_high - last_close) > atr * 1.5:
+            sweep_without_retest = True
+        # Sweep bullish: precio rompio el low previo pero ahora esta lejos arriba
+        if last_low < prev_low and (last_close - last_low) > atr * 1.5:
+            sweep_without_retest = True
+
+    # === Volume Dissonance ===
+    # Vela grande con volumen bajo (sospechoso)
+    volume_dissonance = False
+    if len(recent) >= 5:
+        volumes = [int(c.get('volume', 0)) for c in recent]
+        avg_vol = sum(volumes[:-1]) / max(1, len(volumes) - 1)
+        last_candle = recent[-1]
+        last_vol = int(last_candle.get('volume', 0))
+        last_range = float(last_candle['mid']['h']) - float(last_candle['mid']['l'])
+        # Si la ultima vela es grande (>1.5 ATR) pero el volumen es <70% del promedio
+        if last_range > atr * 1.5 and avg_vol > 0 and last_vol < avg_vol * 0.70:
+            volume_dissonance = True
+
+    # === Displacement Velocity ===
+    # Pips netos movidos en las ultimas 3 velas
+    if len(candles_h1) >= 4:
+        velocity = abs(
+            float(candles_h1[-1]['mid']['c']) - float(candles_h1[-4]['mid']['c'])
+        ) * 10000
+    else:
+        velocity = 0.0
+
+    # === Severity ===
+    anomalies_active = []
+    if max_streak >= 3: anomalies_active.append('long_wick_streak')
+    if mechas_alternantes >= 2: anomalies_active.append('alternating_wicks')
+    if gap_post_news: anomalies_active.append('gap_post_news')
+    if sweep_without_retest: anomalies_active.append('sweep_without_retest')
+    if volume_dissonance: anomalies_active.append('volume_dissonance')
+
+    anomaly_count = len(anomalies_active)
+    if anomaly_count >= 3:
+        severity = 'high'
+    elif anomaly_count == 2:
+        severity = 'medium'
+    elif anomaly_count == 1:
+        severity = 'low'
+    else:
+        severity = 'none'
+
+    return {
+        'consecutive_long_wicks': max_streak,
+        'mechas_consecutivas': mechas_alternantes,
+        'gap_post_news': gap_post_news,
+        'sweep_without_retest': sweep_without_retest,
+        'volume_dissonance': volume_dissonance,
+        'displacement_velocity_pips': round(velocity, 1),
+        'anomaly_count': anomaly_count,
+        'anomalies_active': anomalies_active,
+        'severity': severity,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SECCION 9: SCORING ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -956,11 +1245,14 @@ def compute_levels(sweep, fvg_ob, target_level, price, balance, risk_pct, atr):
             'sl_dist': round(sl_dist,5), 'pos_size': pos_size, 'rr1': rr1, 'rr2': rr2,
             'entry_zone': fvg_ob.get('entry_zone', {'high': 0, 'low': 0})}
 
-def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None):
+def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None, news_events=None):
     if len(h1) < 30:
         return {'sweep': {'detected': False},
                 'score': {'total': 0, 'executable': False, 'confidence': 0, 'factors': {},
-                          'reasons': ['Velas insuficientes'], 'action': None}, 'levels': None}
+                          'reasons': ['Velas insuficientes'], 'action': None}, 'levels': None,
+                'regime': {'type': 'unknown', 'volatility_z': 0.0, 'trending_score': 0.0,
+                           'regime_quality': 'insufficient_data', 'momentum_consistency': 0.0},
+                'anomalies': {'anomaly_count': 0, 'severity': 'none', 'anomalies_active': []}}
     atr = compute_atr(h1); atr_pips = atr * 10000
     h = hour if hour is not None else now_et().hour
     kill = get_killzone(h)
@@ -968,6 +1260,11 @@ def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None):
     htf_bias, htf_str = detect_htf_bias(d1, h1)
     inducement = detect_inducement(h1)
     sweep = detect_sweep(h1, levels, atr)
+
+    # FASE 2: Regime + Anomalies (siempre se calculan)
+    regime = detect_regime(h1, d1)
+    anomalies = detect_anomalies(h1, news_events=news_events, candle_dt=now_et())
+
     if not sweep.get('detected'):
         return {'sweep': sweep,
                 'score': {'total': 0, 'executable': False, 'confidence': 0, 'factors': {},
@@ -979,7 +1276,8 @@ def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None):
                 'displacement': {'found': False, 'strength': 'none'},
                 'structure': {'bos': False, 'bos_quality': 'none', 'bos_level': 0.0},
                 'fvg_ob': {'ob': None, 'fvg': None, 'entry_zone': {'high': 0, 'low': 0}, 'valid': False},
-                'liq_target': {'level': 0.0, 'type': 'NONE', 'rr': 0.0}}
+                'liq_target': {'level': 0.0, 'type': 'NONE', 'rr': 0.0},
+                'regime': regime, 'anomalies': anomalies}
     action = 'SELL' if sweep['direction'] == 'bearish' else 'BUY'
     disp_found, disp_str, _ = detect_displacement(h1, action, atr)
     bos_data = detect_bos(h1, action, atr)
@@ -1004,7 +1302,8 @@ def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None):
             'htf_bias': htf_bias, 'htf_strength': htf_str, 'liq_levels': levels,
             'liq_target': {'level': tl, 'type': tt, 'rr': tr},
             'atr': round(atr,5), 'atr_pips': round(atr_pips,1),
-            'killzone': kill, 'adr_pct': round(adr_pct,2), 'consol_ok': consol_ok}
+            'killzone': kill, 'adr_pct': round(adr_pct,2), 'consol_ok': consol_ok,
+            'regime': regime, 'anomalies': anomalies}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1052,6 +1351,12 @@ COGNITIVE_PROMPT = """Eres una capa de validacion institucional para un sistema 
 Python ya tomo la decision tecnica (BUY o SELL) basada en su motor ICT/SMC determinístico.
 TU TRABAJO NO ES decidir direccion. TU TRABAJO ES validar el contexto institucional.
 
+Python ahora te proporciona DOS capas adicionales de contexto cuantitativo:
+1. REGIME: regimen del mercado (trending/ranging/expansion/compression/choppy) + quality
+2. ANOMALIES_DETECTED: senales anomalas cuantificadas (mechas multiples, gaps, sweeps sin retest, etc.)
+
+Tu trabajo es INTERPRETAR estas senales junto con el setup tecnico.
+
 Tu output DEBE ser un JSON con estos campos exactos:
 
 {
@@ -1061,25 +1366,38 @@ Tu output DEBE ser un JSON con estos campos exactos:
   "narrative_quality": "clean",
   "regime_assessment": "expansion saludable post-Asia",
   "anomalies": [],
-  "narrative": "Sweep limpio en PDH con mecha 68% seguido de displacement strong..."
+  "narrative": "Sweep limpio en PDH con mecha 68% seguido de displacement strong. Regime expansion + 0 anomalias = setup A+."
 }
 
 REGLAS ESTRICTAS:
-- Tu NO puedes incluir el campo "action". Si lo incluyes el JSON sera rechazado.
+- Tu NO puedes incluir el campo "action".
 - "veto": true SOLO si detectas incoherencia institucional grave.
 - "confidence_multiplier": rango 0.5-1.0.
 - "narrative_quality": "clean" / "acceptable" / "dirty"
-- "anomalies": lista corta de strings.
-- "narrative": max 500 caracteres.
+- "anomalies": lista corta de strings interpretadas (no copies anomalies_detected, interpretalas).
+- "narrative": max 500 caracteres. Menciona regime y anomalias si son relevantes.
 
-CRITERIOS PARA VETAR (solo si aplica):
+INTERPRETACION DE REGIME:
+- expansion + trending_score alto = entorno ideal para tu setup tecnico
+- compression = peligroso para setups de continuacion, mejor reversal
+- choppy + regime_quality 'choppy' = considera vetar
+- ranging con setup direccional = reducir confidence_multiplier
+
+INTERPRETACION DE ANOMALIES_DETECTED:
+- severity 'high' (3+ anomalias) = considera vetar si tambien hay contexto debil
+- gap_post_news=true = vetar siempre
+- sweep_without_retest=true en setup de continuacion = warning, reduce multiplier
+- mechas_consecutivas >= 2 = indecision, reduce multiplier
+- volume_dissonance=true = warning de delivery debil
+
+CRITERIOS PARA VETAR:
 - Delivery institucional incoherente
-- Post-news chaos
-- Regime mismatch
+- Post-news chaos (gap_post_news=true)
+- Regime mismatch claro
 - Stale liquidity
-- Anomalia clara de delivery
+- Severity 'high' + setup tecnico borderline (score 58-65)
 
-NO vetes por feeling. Solo veta con razon concreta.
+NO vetes por feeling. Solo veta con razon concreta apoyada en datos cuantitativos.
 Responde SOLO el JSON. Sin texto antes ni despues."""
 
 async def call_cognitive_layer(ict: dict, recent_history: list) -> Optional[CognitiveValidation]:
@@ -1106,6 +1424,9 @@ async def call_cognitive_layer(ict: dict, recent_history: list) -> Optional[Cogn
                     'quality': (ict.get('fvg_ob', {}).get('fvg') or {}).get('quality')},
             'atr_pips': ict.get('atr_pips'), 'adr_pct': ict.get('adr_pct'),
         },
+        # FASE 2: Regime + Anomalies enriquecen el contexto cognitivo
+        'regime': ict.get('regime', {}),
+        'anomalies_detected': ict.get('anomalies', {}),
         'liq_target': ict.get('liq_target'),
         'context': {'last_5_decisions': (recent_history or [])[-5:],
                     'consecutive_losses': state.get('consecutive_losses', 0),
@@ -1306,8 +1627,17 @@ async def run_analysis(auto_execute=False):
     except Exception:
         if h1: price = float(h1[-1]['mid']['c'])
 
-    ict = run_ict_pipeline(h1, h4, d1, price, state['balance'], state['risk_pct_current'])
+    ict = run_ict_pipeline(h1, h4, d1, price, state['balance'], state['risk_pct_current'],
+                            news_events=all_news)
     log.info(f'[ICT] sweep:{ict["sweep"].get("detected")} score:{ict["score"]["total"]}/100')
+    if ict.get('regime'):
+        r = ict['regime']
+        log.info(f'[REGIME] type={r.get("type")} vol_z={r.get("volatility_z")} '
+                 f'trending={r.get("trending_score")} quality={r.get("regime_quality")}')
+    if ict.get('anomalies', {}).get('anomaly_count', 0) > 0:
+        a = ict['anomalies']
+        log.info(f'[ANOMALY] count={a.get("anomaly_count")} severity={a.get("severity")} '
+                 f'active={a.get("anomalies_active", [])}')
 
     cognitive = None
     if ict.get('score', {}).get('executable') and ict['sweep'].get('detected'):
@@ -1843,7 +2173,8 @@ async def scheduled_ny_open_report():
 
 @app.get('/health')
 async def health():
-    return {'status': 'ok', 'version': '2.1', 'pair': 'EUR/USD',
+    ict = state.get('last_analysis', {}).get('ict', {})
+    return {'status': 'ok', 'version': '2.2', 'pair': 'EUR/USD',
             'trading_paused': state['trading_paused'],
             'pause_reason': state['pause_reason'],
             'consecutive_losses': state['consecutive_losses'],
@@ -1860,7 +2191,19 @@ async def health():
                               'configured': bool(RESEND_API_KEY),
                               'email_to': NOTIFY_EMAIL_TO,
                               'email_from': NOTIFY_EMAIL_FROM},
-            'auto_execute': AUTO_EXECUTE}
+            'auto_execute': AUTO_EXECUTE,
+            # FASE 2: Regime + Anomaly summary
+            'regime': {
+                'type': ict.get('regime', {}).get('type', 'unknown'),
+                'volatility_z': ict.get('regime', {}).get('volatility_z', 0),
+                'trending_score': ict.get('regime', {}).get('trending_score', 0),
+                'quality': ict.get('regime', {}).get('regime_quality', 'unknown'),
+            },
+            'anomalies': {
+                'count': ict.get('anomalies', {}).get('anomaly_count', 0),
+                'severity': ict.get('anomalies', {}).get('severity', 'none'),
+                'active': ict.get('anomalies', {}).get('anomalies_active', []),
+            }}
 
 @app.get('/dashboard')
 async def dashboard():
@@ -1915,7 +2258,10 @@ async def dashboard():
                 'adr_pct': ict.get('adr_pct',0),
                 'liq_target': ict.get('liq_target',{}),
                 'inducement': ict.get('inducement',{}),
-                'displacement': ict.get('displacement',{})},
+                'displacement': ict.get('displacement',{}),
+                # FASE 2: Regime + Anomalies expuestos en dashboard
+                'regime': ict.get('regime', {}),
+                'anomalies_detected': ict.get('anomalies', {})},
             'history': state.get('history',[])[-20:],
             'open_trades': state.get('open_trades',[]),
             'active_trades_meta': state.get('active_trades_meta', {}),
@@ -2036,6 +2382,21 @@ async def audit_cognitive_health():
             'failure_rate_1h': (len(_cognitive_health['failures']) / len(_cognitive_health['calls'])
                                 if _cognitive_health['calls'] else 0)}
 
+@app.get('/regime')
+async def regime_endpoint():
+    """FASE 2: Estado actual del regimen de mercado + anomalias detectadas"""
+    ict = state.get('last_analysis', {}).get('ict', {})
+    return {
+        'regime': ict.get('regime', {}),
+        'anomalies_detected': ict.get('anomalies', {}),
+        'killzone': ict.get('killzone'),
+        'htf_bias': ict.get('htf_bias'),
+        'htf_strength': ict.get('htf_strength'),
+        'atr_pips': ict.get('atr_pips'),
+        'adr_pct': ict.get('adr_pct'),
+        'last_update': state.get('last_update'),
+    }
+
 
 # Endpoints de notificacion (NUEVOS v2.1)
 
@@ -2145,4 +2506,4 @@ async def startup():
                 with open(bt_flag, 'w') as f: f.write(str(time.time()))
             except Exception: pass
     asyncio.create_task(delayed_start())
-    log.info('TPDCM-IA v2.1 - Notification Layer + Auto-Execute - Sistema activo')
+    log.info('TPDCM-IA v2.2 - Decision Gate + Cognitive Layer + Regime Detector + Notifications - Sistema activo')
