@@ -205,7 +205,7 @@ def _email_wrapper(title: str, body_html: str) -> str:
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8">{EMAIL_BASE_STYLE}</head>
 <body><div class="wrap">
-<div class="header"><div class="logo">TPDCM-IA<span>EUR/USD INSTITUCIONAL · v2.1</span></div></div>
+<div class="header"><div class="logo">TPDCM-IA<span>EUR/USD INSTITUCIONAL · v2.2</span></div></div>
 <h1>{title}</h1>
 <div class="sub">{et.strftime('%A %d %B %Y · %H:%M:%S ET')}</div>
 {body_html}
@@ -356,6 +356,14 @@ def build_ny_open_report():
 <span class="value">Confianza: <strong class="{conf_color}">{confidence_pct:.0f}%</strong></span>
 <span class="value">Score: <strong class="gold">{dec.get('score',0)}/100</strong></span></div>
 <div style="margin-top:10px;color:#5a7a68;font-size:11px">{source_explain}</div></div>
+<div class="card"><div class="label">📊 Regimen de Mercado (Fase 2)</div>
+<div class="row"><span class="k">Tipo de regimen</span><span class="v gold">{ict.get('regime', {}).get('type', 'unknown').upper()}</span></div>
+<div class="row"><span class="k">Calidad del regimen</span><span class="v">{ict.get('regime', {}).get('regime_quality', 'unknown').upper()}</span></div>
+<div class="row"><span class="k">Volatilidad (Z-score)</span><span class="v">{ict.get('regime', {}).get('volatility_z', 0):+.2f}</span></div>
+<div class="row"><span class="k">Direccionalidad</span><span class="v">{ict.get('regime', {}).get('trending_score', 0)*100:.0f}%</span></div>
+<div class="row"><span class="k">Momentum consistency</span><span class="v">{ict.get('regime', {}).get('momentum_consistency', 0)*100:.0f}%</span></div>
+<div class="row"><span class="k">Anomalias detectadas</span><span class="v {'red' if ict.get('anomalies', {}).get('severity') == 'high' else 'gold' if ict.get('anomalies', {}).get('severity') == 'medium' else 'green'}">{ict.get('anomalies', {}).get('severity', 'none').upper()} ({ict.get('anomalies', {}).get('anomaly_count', 0)})</span></div>
+</div>
 {setup_html}{cognitive_html}{levels_html}
 <div class="card"><div class="label">Próximos Análisis Programados</div>
 <div class="value" style="font-size:11px;color:#5a7a68">
