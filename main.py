@@ -1,8 +1,19 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-TPDCM-IA v2.3 — Trading Platform Deep Claude Machine Intelligence
+TPDCM-IA v2.4 — Trading Platform Deep Claude Machine Intelligence
 EUR/USD Institucional · Prop Firm System
 ═══════════════════════════════════════════════════════════════════════════════
+
+CAMBIOS v2.3 -> v2.4 (DAYS OF CAUTION ENGINE):
+  + Days of Caution Engine basado en análisis cuantitativo
+  + Lunes/Viernes: filtros estrictos + risk 50% + Claude validation
+  + Score mínimo elevado a 70 en días de caution
+  + HTF strength mínimo 0.50 requerido
+  + Régimen choppy/compression: VETO automático en L/V
+  + Anomalías medium/high: VETO automático en L/V
+  + Claude debe aprobar con multiplier >= 0.85 en L/V
+  + Endpoint /caution-days-stats para monitoreo
+  + Prompt de Claude actualizado con contexto estadístico
 
 CAMBIOS v2.2 -> v2.3 (MEJORAS ROBUSTEZ):
   + Healthcheck interno: monitoreo de scheduler
@@ -98,6 +109,20 @@ MIN_SCORE_WEDTHU = 65
 ADR_MIN          = 0.20
 ATR_MIN_PIPS     = 8
 ATR_MAX_PIPS     = 80
+
+# ═══ DAYS OF CAUTION ENGINE (NUEVO v2.4) ═══
+# Configuración basada en análisis estadístico de 39 trades reales:
+# - Lunes:   WR 20%, PnL -$1,585
+# - Viernes: WR 33%, PnL -$1,665
+# - Martes:  WR 80%, PnL +$14,316
+# - Miércoles: WR 80%, PnL +$5,618
+CAUTION_DAYS              = ['Monday', 'Friday']  # Días estadísticamente débiles
+CAUTION_RISK_MULTIPLIER   = 0.5    # Reducir risk al 50% en días de caution
+CAUTION_MIN_SCORE         = 70     # Score mínimo elevado en L/V
+CAUTION_MIN_CLAUDE_MULT   = 0.85   # Multiplier mínimo de Claude
+CAUTION_MIN_HTF_STRENGTH  = 0.50   # HTF debe ser fuerte
+CAUTION_BLOCKED_REGIMES   = ['choppy', 'compression']  # Régimenes que vetan
+CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']  # Severidades que vetan
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -496,7 +521,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.3.0')
+app = FastAPI(title='TPDCM-IA', version='2.4.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -640,6 +665,199 @@ def is_news_blocked(candle_dt, events):
                 return True, f"{evt.get('currency','')} {evt.get('title','')} ({diff:.0f}min)"
         except Exception: continue
     return False, ''
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DAYS OF CAUTION ENGINE (NUEVO v2.4)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Sistema de filtrado inteligente para días estadísticamente débiles (Lunes/Viernes).
+# Basado en análisis cuantitativo de 39 trades reales del backtest.
+#
+# En días de caution:
+#  - Risk se reduce al 50%
+#  - Score mínimo elevado a 70
+#  - Régimen choppy/compression: VETO automático
+#  - Anomalías medium/high: VETO automático
+#  - Claude debe aprobar con multiplier >= 0.85
+#  - HTF strength debe ser >= 0.50
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def is_caution_day(dt=None):
+    """Verifica si el día actual es un Day of Caution (lunes o viernes)."""
+    if dt is None:
+        dt = now_et()
+    day_name = dt.strftime('%A')
+    return day_name in CAUTION_DAYS
+
+
+def _get_caution_day_warning():
+    """Genera advertencia estadística para Claude sobre días débiles."""
+    day = now_et().strftime('%A')
+    if day == 'Monday':
+        return {
+            'day': 'Monday',
+            'historical_wr': '20%',
+            'historical_pnl': '-$1,585 over 10 trades',
+            'recommendation': 'BE EXTREMELY STRICT. Monday has historically been the worst trading day.',
+            'requirements': [
+                'Setup must be ELITE quality, not just good',
+                'Regime must be TRENDING or EXPANSION (not choppy)',
+                'HTF bias must be strong (>0.5)',
+                'No anomalies should be present',
+                'If ANY doubt exists, VETO the trade',
+                'Even score 75+ trades have failed on Mondays in backtest'
+            ]
+        }
+    elif day == 'Friday':
+        return {
+            'day': 'Friday',
+            'historical_wr': '33%',
+            'historical_pnl': '-$1,665 over 12 trades',
+            'recommendation': 'BE EXTREMELY STRICT. Friday afternoons especially weak.',
+            'requirements': [
+                'Avoid trades close to weekend (after 12:00 ET)',
+                'Setup must be ELITE quality',
+                'Strong HTF alignment required',
+                'No medium/high anomalies',
+                'If ANY doubt exists, VETO the trade'
+            ]
+        }
+    return None
+
+
+def days_of_caution_filter(signal, regime, anomalies, claude_response, dt=None):
+    """
+    Filtro institucional para días de caution.
+    
+    Args:
+        signal: dict con score, htf_strength, action, etc.
+        regime: dict con type, quality
+        anomalies: dict con severity, active, count
+        claude_response: dict con cognitive_veto, multiplier, narrative
+        dt: datetime (opcional, default: now_et())
+    
+    Returns:
+        dict con:
+            - allow: bool (permitir trade o no)
+            - veto_reason: str (si allow=False)
+            - risk_multiplier: float (0.5 si caution, 1.0 si normal)
+            - caution_mode: bool
+            - filters_passed: list de filtros que pasó
+            - detail: str con explicación
+    """
+    if dt is None:
+        dt = now_et()
+    
+    day_name = dt.strftime('%A')
+    
+    # Si NO es día de caution, paso normal
+    if day_name not in CAUTION_DAYS:
+        return {
+            'allow': True,
+            'risk_multiplier': 1.0,
+            'caution_mode': False,
+            'day': day_name,
+            'detail': 'Día normal - sin filtros adicionales'
+        }
+    
+    # Es día de caution: aplicar filtros estrictos
+    filters_passed = []
+    
+    # FILTRO 1: Régimen debe ser favorable
+    regime_type = (regime or {}).get('type', 'unknown')
+    if regime_type in CAUTION_BLOCKED_REGIMES:
+        return {
+            'allow': False,
+            'veto_reason': 'caution_day_unfavorable_regime',
+            'risk_multiplier': 0,
+            'caution_mode': True,
+            'day': day_name,
+            'detail': f'{day_name} + régimen {regime_type} = riesgo elevado',
+            'filters_passed': filters_passed
+        }
+    filters_passed.append('regime_ok')
+    
+    # FILTRO 2: Sin anomalías significativas
+    anomaly_severity = (anomalies or {}).get('severity', 'none')
+    if anomaly_severity in CAUTION_BLOCKED_ANOMALIES:
+        active_anomalies = (anomalies or {}).get('active', [])
+        return {
+            'allow': False,
+            'veto_reason': 'caution_day_anomaly_detected',
+            'risk_multiplier': 0,
+            'caution_mode': True,
+            'day': day_name,
+            'detail': f'{day_name} con anomalía {anomaly_severity}: {active_anomalies}',
+            'filters_passed': filters_passed
+        }
+    filters_passed.append('no_anomalies')
+    
+    # FILTRO 3: Score técnico mínimo elevado
+    score = signal.get('score', 0)
+    if score < CAUTION_MIN_SCORE:
+        return {
+            'allow': False,
+            'veto_reason': 'caution_day_score_too_low',
+            'risk_multiplier': 0,
+            'caution_mode': True,
+            'day': day_name,
+            'detail': f'Score {score:.1f} < {CAUTION_MIN_SCORE} mínimo en día de caution',
+            'filters_passed': filters_passed
+        }
+    filters_passed.append('score_elite')
+    
+    # FILTRO 4: HTF strength suficiente
+    htf_strength = signal.get('htf_strength', 0)
+    if htf_strength < CAUTION_MIN_HTF_STRENGTH:
+        return {
+            'allow': False,
+            'veto_reason': 'caution_day_weak_htf',
+            'risk_multiplier': 0,
+            'caution_mode': True,
+            'day': day_name,
+            'detail': f'HTF strength {htf_strength:.2f} < {CAUTION_MIN_HTF_STRENGTH} mínimo',
+            'filters_passed': filters_passed
+        }
+    filters_passed.append('htf_strong')
+    
+    # FILTRO 5: Claude debe haber validado (no vetado)
+    if claude_response and claude_response.get('cognitive_veto'):
+        return {
+            'allow': False,
+            'veto_reason': 'caution_day_claude_veto',
+            'risk_multiplier': 0,
+            'caution_mode': True,
+            'day': day_name,
+            'detail': f'Claude vetó en día de caution: {claude_response.get("narrative", "")[:100]}',
+            'filters_passed': filters_passed
+        }
+    filters_passed.append('claude_ok')
+    
+    # FILTRO 6: Claude multiplier suficientemente alto
+    claude_mult = (claude_response or {}).get('multiplier', 1.0)
+    if claude_mult < CAUTION_MIN_CLAUDE_MULT:
+        return {
+            'allow': False,
+            'veto_reason': 'caution_day_low_claude_confidence',
+            'risk_multiplier': 0,
+            'caution_mode': True,
+            'day': day_name,
+            'detail': f'Multiplier Claude {claude_mult:.2f} < {CAUTION_MIN_CLAUDE_MULT} requerido',
+            'filters_passed': filters_passed
+        }
+    filters_passed.append('claude_confident')
+    
+    # ✅ TODOS LOS FILTROS PASARON: permitir con risk reducido
+    return {
+        'allow': True,
+        'risk_multiplier': CAUTION_RISK_MULTIPLIER,
+        'caution_mode': True,
+        'day': day_name,
+        'detail': (f'CAUTION DAY ELITE PASS: score {score:.1f}, '
+                   f'HTF {htf_strength:.2f}, Claude mult {claude_mult:.2f}'),
+        'filters_passed': filters_passed,
+        'reason': 'elite_setup_caution_day'
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1405,6 +1623,21 @@ CRITERIOS PARA VETAR:
 - Stale liquidity
 - Severity 'high' + setup tecnico borderline (score 58-65)
 
+DAYS OF CAUTION (NUEVO v2.4):
+Si is_caution_day=true (Lunes/Viernes), el campo day_statistics_warning te dará el contexto histórico.
+ESTOS DÍAS SON ESTADÍSTICAMENTE DÉBILES:
+- Lunes: WR histórico 20%, PnL -$1,585 en 10 trades
+- Viernes: WR histórico 33%, PnL -$1,665 en 12 trades
+- Incluso trades con score 75+ HAN FALLADO en lunes en el histórico
+
+EN DÍAS DE CAUTION, SÉ EXTREMADAMENTE ESTRICTO:
+- La carga de prueba está en APROBAR, no en vetar
+- Si tienes CUALQUIER duda, VETA
+- Solo aprobar setups ELITE (no buenos, ELITE)
+- Confidence_multiplier debe ser >= 0.85 para que el trade pase (el sistema vetará si es menor)
+- Si el régimen no es claramente trending o expansion, VETA
+- Si hay cualquier anomalía medium o high, VETA
+
 NO vetes por feeling. Solo veta con razon concreta apoyada en datos cuantitativos.
 Responde SOLO el JSON. Sin texto antes ni despues."""
 
@@ -1420,7 +1653,9 @@ async def call_cognitive_layer(ict: dict, recent_history: list) -> Optional[Cogn
                   'technical_confidence': score.get('confidence', 0),
                   'technical_score': score.get('total', 0),
                   'killzone': ict.get('killzone'),
-                  'timestamp_et': now_et().isoformat()},
+                  'timestamp_et': now_et().isoformat(),
+                  'day_of_week': now_et().strftime('%A'),
+                  'is_caution_day': is_caution_day()},
         'features': {
             'sweep': {'level_type': sweep.get('level_type'), 'quality': sweep.get('quality'),
                       'wick_pct': sweep.get('wick_pct')},
@@ -1438,7 +1673,9 @@ async def call_cognitive_layer(ict: dict, recent_history: list) -> Optional[Cogn
         'liq_target': ict.get('liq_target'),
         'context': {'last_5_decisions': (recent_history or [])[-5:],
                     'consecutive_losses': state.get('consecutive_losses', 0),
-                    'defensive_mode': state.get('defensive_mode', False)}}
+                    'defensive_mode': state.get('defensive_mode', False)},
+        # NUEVO v2.4: Estadísticas históricas del día (Days of Caution)
+        'day_statistics_warning': _get_caution_day_warning() if is_caution_day() else None}
     try:
         async with httpx.AsyncClient(timeout=COGNITIVE_TIMEOUT_SEC) as client:
             r = await client.post('https://api.anthropic.com/v1/messages',
@@ -1543,8 +1780,55 @@ def decision_gate(ict: dict, cognitive: Optional[CognitiveValidation]) -> dict:
                 'technical_confidence_pre_veto': technical_confidence}
 
     confidence_final = round(technical_confidence * cognitive.confidence_multiplier, 3)
+    
+    # ═══ DAYS OF CAUTION FILTER (NUEVO v2.4) ═══
+    # Si es lunes/viernes, aplicar filtros adicionales antes de aprobar
+    caution_filter_result = days_of_caution_filter(
+        signal={
+            'score': technical_score,
+            'htf_strength': ict.get('htf_strength', 0),
+            'action': technical_action
+        },
+        regime=ict.get('regime'),
+        anomalies=ict.get('anomalies'),
+        claude_response={
+            'cognitive_veto': cognitive.veto,
+            'multiplier': cognitive.confidence_multiplier,
+            'narrative': cognitive.narrative
+        }
+    )
+    
+    # Si el caution filter rechaza el trade, VETO
+    if not caution_filter_result['allow']:
+        log.warning(f"[CAUTION_DAY] Trade vetado: {caution_filter_result['veto_reason']} - {caution_filter_result['detail']}")
+        return {'action': 'HOLD', 'confidence': 0, 'score': technical_score,
+                'source': 'caution_day_veto',
+                'reason': f"Caution Day VETO: {caution_filter_result['veto_reason']}",
+                'cognitive_veto': False, 'cognitive_multiplier': cognitive.confidence_multiplier,
+                'narrative': cognitive.narrative, 'anomalies': cognitive.anomalies,
+                'narrative_quality': cognitive.narrative_quality,
+                'regime_assessment': cognitive.regime_assessment,
+                'sl': levels['sl'] if levels else 0,
+                'tp1': levels['tp1'] if levels else 0,
+                'tp2': levels['tp2'] if levels else 0,
+                'pos_size': 0,
+                'rr1': levels['rr1'] if levels else 0,
+                'rr2': levels['rr2'] if levels else 0,
+                'entry_zone': levels['entry_zone'] if levels else {'high': 0, 'low': 0},
+                'liq_target': ict.get('liq_target', {}),
+                'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias'),
+                'caution_filter': caution_filter_result,
+                'technical_action_that_would_have_been': technical_action}
+    
+    # Aplicar risk multiplier del caution filter (0.5 si caution day, 1.0 si normal)
+    risk_mult = caution_filter_result['risk_multiplier']
+    final_pos_size = levels['pos_size'] if levels else 0
+    if risk_mult < 1.0 and final_pos_size > 0:
+        final_pos_size = int(final_pos_size * risk_mult)
+        log.info(f"[CAUTION_DAY] Risk reducido a {risk_mult*100:.0f}%: pos_size {levels['pos_size']} -> {final_pos_size}")
+    
     return {'action': technical_action, 'confidence': confidence_final,
-            'score': technical_score, 'source': 'validated',
+            'score': technical_score, 'source': 'validated' + ('_caution' if caution_filter_result['caution_mode'] else ''),
             'reason': cognitive.narrative,
             'cognitive_veto': False, 'cognitive_multiplier': cognitive.confidence_multiplier,
             'narrative': cognitive.narrative, 'anomalies': cognitive.anomalies,
@@ -1553,12 +1837,13 @@ def decision_gate(ict: dict, cognitive: Optional[CognitiveValidation]) -> dict:
             'sl': levels['sl'] if levels else 0,
             'tp1': levels['tp1'] if levels else 0,
             'tp2': levels['tp2'] if levels else 0,
-            'pos_size': levels['pos_size'] if levels else 0,
+            'pos_size': final_pos_size,
             'rr1': levels['rr1'] if levels else 0,
             'rr2': levels['rr2'] if levels else 0,
             'entry_zone': levels['entry_zone'] if levels else {'high': 0, 'low': 0},
             'liq_target': ict.get('liq_target', {}),
-            'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias')}
+            'killzone': ict.get('killzone'), 'htf_bias': ict.get('htf_bias'),
+            'caution_filter': caution_filter_result}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2615,13 +2900,13 @@ RISK ACTUAL: {state.get('risk_pct_current', 1.0):.2f}%
 async def root():
     """Endpoint raiz simple para monitoreo externo (UptimeRobot, etc).
     Responde tanto a GET como HEAD requests."""
-    return {'service': 'TPDCM-IA', 'version': '2.3', 'status': 'alive'}
+    return {'service': 'TPDCM-IA', 'version': '2.4', 'status': 'alive'}
 
 
 @app.get('/health')
 async def health():
     ict = state.get('last_analysis', {}).get('ict', {})
-    return {'status': 'ok', 'version': '2.3', 'pair': 'EUR/USD',
+    return {'status': 'ok', 'version': '2.4', 'pair': 'EUR/USD',
             'trading_paused': state['trading_paused'],
             'pause_reason': state['pause_reason'],
             'consecutive_losses': state['consecutive_losses'],
@@ -2983,6 +3268,53 @@ async def trigger_weekly_stats():
 def _is_market_active():
     now = now_et()
     return now.weekday() < 5 and 3 <= now.hour < 17
+
+
+@app.get('/caution-days-stats')
+async def caution_days_stats():
+    """Estadísticas del Days of Caution Engine."""
+    now = now_et()
+    is_today_caution = is_caution_day()
+    
+    # Contar vetos por caution day en el audit log
+    month_key = now.strftime('%Y-%m')
+    audit_file = f'{DATA_PATH}/audit/decisions_{month_key}.jsonl'
+    
+    caution_stats = {
+        'is_today_caution_day': is_today_caution,
+        'today_day_name': now.strftime('%A'),
+        'caution_days_configured': CAUTION_DAYS,
+        'caution_risk_multiplier': CAUTION_RISK_MULTIPLIER,
+        'caution_min_score': CAUTION_MIN_SCORE,
+        'caution_min_claude_mult': CAUTION_MIN_CLAUDE_MULT,
+        'caution_min_htf_strength': CAUTION_MIN_HTF_STRENGTH,
+        'blocked_regimes': CAUTION_BLOCKED_REGIMES,
+        'blocked_anomalies': CAUTION_BLOCKED_ANOMALIES,
+        'historical_data': {
+            'monday': {'wr': '20%', 'pnl': '-$1,585', 'trades': 10},
+            'tuesday': {'wr': '80%', 'pnl': '+$14,316', 'trades': 10},
+            'wednesday': {'wr': '80%', 'pnl': '+$5,618', 'trades': 5},
+            'thursday': {'wr': '50%', 'pnl': '+$79', 'trades': 2},
+            'friday': {'wr': '33%', 'pnl': '-$1,665', 'trades': 12}
+        },
+        'this_month_vetos': 0,
+        'this_month_caution_trades': 0
+    }
+    
+    # Contar vetos del mes actual
+    if Path(audit_file).exists():
+        with open(audit_file) as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                    if d.get('source') == 'caution_day_veto':
+                        caution_stats['this_month_vetos'] += 1
+                    elif 'validated_caution' in str(d.get('source', '')):
+                        caution_stats['this_month_caution_trades'] += 1
+                except Exception:
+                    continue
+    
+    return caution_stats
 
 
 @app.get('/healthcheck-monitor')
