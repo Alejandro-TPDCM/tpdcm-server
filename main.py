@@ -2229,13 +2229,21 @@ def generate_post_mortem_local(td):
         rec = 'Loss aceptable.'
     return analysis, rec, fail_factors
 
-def simulate_trade(candles, entry_idx, action, sl, tp1, tp2, balance, atr):
+def simulate_trade(candles, entry_idx, action, sl, tp1, tp2, balance, atr, risk_multiplier=1.0):
+    """
+    Simula un trade con gestión completa.
+    
+    Args:
+        risk_multiplier: 1.0 = risk normal, 0.5 = days of caution (50%)
+    """
     entry_p = float(candles[entry_idx]['mid']['c'])
     spread = 0.00015; slip = 0.00003
     fill = entry_p + (spread + slip) if action == 'BUY' else entry_p - (spread + slip)
     sl_dist = abs(fill - sl)
     if sl_dist <= 0: return None
-    risk_usd = balance * (RISK_PCT / 100)
+    # Apply risk multiplier (Days of Caution reduces to 0.5)
+    effective_risk_pct = RISK_PCT * risk_multiplier
+    risk_usd = balance * (effective_risk_pct / 100)
     units = max(1000, int(risk_usd / sl_dist))
     sl_cur = sl; units_cur = units; sl_be = False; par = False; pnl_par = 0.0
     tp1_vela = None; be_vela = None; gestion = []; MAX_V = 25
@@ -2351,6 +2359,37 @@ async def run_backtesting():
             score = compute_score(htf_b, htf_s, sweep, ind, ds, bos_data, fvg_ob,
                                   kill, adr_pct, atr_p, consol_ok, tl > 0)
             if score['total'] < min_sc: cnt['score'] += 1; continue
+            
+            # ═══ DAYS OF CAUTION FILTER (NUEVO v2.4) ═══
+            # En lunes/viernes aplicar filtros institucionales más estrictos
+            risk_mult = 1.0  # Default
+            is_caution = (c_dow_n in (0, 4)) if cdt else False  # 0=Mon, 4=Fri
+            if is_caution:
+                day_name = cdt.strftime('%A') if cdt else 'Unknown'
+                # Filtro 1: Score mínimo elevado a 70 en caution days
+                if score['total'] < CAUTION_MIN_SCORE:
+                    cnt['caution_score'] += 1
+                    continue
+                # Filtro 2: HTF strength mínimo 0.50 en caution days
+                if htf_s < CAUTION_MIN_HTF_STRENGTH:
+                    cnt['caution_htf'] += 1
+                    continue
+                # Filtro 3: Sweep quality debe ser high o medium (no low)
+                if sweep.get('quality') == 'low':
+                    cnt['caution_sweep'] += 1
+                    continue
+                # Filtro 4: Displacement debe estar presente (no none)
+                if ds == 'none':
+                    cnt['caution_disp'] += 1
+                    continue
+                # Filtro 5: Inducement quality debe ser positivo
+                if ind[1] in ('none', 'weak'):
+                    cnt['caution_ind'] += 1
+                    continue
+                # PASA TODOS LOS FILTROS: aplicar risk reducido al 50%
+                risk_mult = CAUTION_RISK_MULTIPLIER  # 0.5
+                log.debug(f'[BT][CAUTION] {day_name} elite trade: score {score["total"]} - risk 50%')
+            
             buf = atr * 0.20
             if action == 'SELL':
                 sl = sweep.get('sweep_high', sweep['level']) + buf; sl_dist = abs(sl - c_price)
@@ -2359,7 +2398,7 @@ async def run_backtesting():
                 sl = sweep.get('sweep_low', sweep['level']) - buf; sl_dist = abs(c_price - sl)
                 tp1 = c_price + sl_dist * 1.5; tp2 = tl if tl > 0 else c_price + sl_dist * 2.5
             if sl_dist <= 0 or sl_dist > c_price * 0.012: cnt['sl_dist'] += 1; continue
-            sim = simulate_trade(h1, i, action, sl, tp1, tp2, balance, atr)
+            sim = simulate_trade(h1, i, action, sl, tp1, tp2, balance, atr, risk_multiplier=risk_mult)
             if not sim: continue
             last_day = c_day; last_idx = i
             td = {'action': action, 'outcome': sim['outcome'], 'result': sim['result'],
@@ -2396,8 +2435,17 @@ async def run_backtesting():
                 'score_factors': ' | '.join(f"{k}:{v['pts']:.0f}" for k, v in score['factors'].items()),
                 'confirmaciones': f"Sweep {sweep.get('quality','')} | HTF {htf_b} | BOS {bos_data[1]}",
                 'ceo_analysis': analysis, 'ceo_recommendation': rec,
-                'failure_factors': ', '.join(fail_factors) if fail_factors else 'N/A'})
+                'failure_factors': ', '.join(fail_factors) if fail_factors else 'N/A',
+                'caution_mode': is_caution,
+                'risk_multiplier': risk_mult,
+                'day_of_week': cdt.strftime('%A') if cdt else 'Unknown'})
         log.info(f'[BT] {len(all_trades)} trades')
+        log.info(f'[BT][CAUTION] Vetos por caution day: '
+                 f'score={cnt.get("caution_score",0)} htf={cnt.get("caution_htf",0)} '
+                 f'sweep={cnt.get("caution_sweep",0)} disp={cnt.get("caution_disp",0)} '
+                 f'ind={cnt.get("caution_ind",0)}')
+        caution_trades = [t for t in all_trades if t.get('caution_mode')]
+        log.info(f'[BT][CAUTION] Trades con caution mode (risk 50%): {len(caution_trades)}')
     except Exception as e:
         log.error(f'[BT] Error: {e}', exc_info=True)
     if all_trades:
@@ -2418,7 +2466,11 @@ async def run_backtesting():
             'losses': len(all_trades) - len(wins) - len(bes), 'breakeven': len(bes),
             'win_rate': round(wr,4), 'total_pnl': round(pnl,2), 'profit_factor': pf,
             'max_drawdown': round(max_dd*100,2),
-            'trades_per_week': round(len(all_trades)/52,1)}
+            'trades_per_week': round(len(all_trades)/52,1),
+            'caution_day_trades': len([t for t in all_trades if t.get('caution_mode')]),
+            'caution_day_vetos': sum([cnt.get('caution_score',0), cnt.get('caution_htf',0),
+                                       cnt.get('caution_sweep',0), cnt.get('caution_disp',0),
+                                       cnt.get('caution_ind',0)])}
         all_trades.sort(key=lambda x: x['date'], reverse=True)
         bt_state['trades'] = all_trades[:300]
         bt_state['last_run'] = now_utc().isoformat()
