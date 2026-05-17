@@ -2610,6 +2610,14 @@ RISK ACTUAL: {state.get('risk_pct_current', 1.0):.2f}%
 # SECCION 16: API ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+@app.get('/')
+@app.head('/')
+async def root():
+    """Endpoint raiz simple para monitoreo externo (UptimeRobot, etc).
+    Responde tanto a GET como HEAD requests."""
+    return {'service': 'TPDCM-IA', 'version': '2.3', 'status': 'alive'}
+
+
 @app.get('/health')
 async def health():
     ict = state.get('last_analysis', {}).get('ict', {})
