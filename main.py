@@ -1,8 +1,30 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-TPDCM-IA v2.5.1 — Trading Platform Deep Claude Machine Intelligence
-EUR/USD Institucional · Prop Firm System
+TPDCM-IA v2.6.0-alpha — Trading Platform Deep Claude Machine Intelligence
+EUR/USD + GBP/USD Institucional · Prop Firm System
 ═══════════════════════════════════════════════════════════════════════════════
+
+CAMBIOS v2.5.1 -> v2.6.0-alpha (MULTI-PAR FASE 1: Estructura base):
+  + Estructura PAIRS = ['EUR_USD', 'GBP_USD']
+  + PAIR_CONFIG con configuración independiente por par
+  + State separado por par (pair_state)
+  + Funciones OANDA aceptan pair como parámetro:
+    - get_candles(granularity, count, pair=None)
+    - get_candles_to(granularity, count, to_dt, pair=None)
+    - get_price(pair=None)
+    - place_order(units, sl, tp, action, pair=None)
+  + Endpoint /pairs para monitoreo de estado multi-par
+  + GBP/USD config: min_score 65, risk 1.0%, tier B (validación)
+  + EUR/USD sigue 100% operativo (compatibilidad)
+  
+  PENDIENTE FASE 2-5 (próxima sesión):
+  - Refactor run_analysis() para iterar sobre PAIRS
+  - Refactor run_ict_pipeline() acepta pair
+  - Refactor decision_gate() acepta pair  
+  - Refactor execute_signal() acepta pair
+  - Refactor run_backtesting() multi-par
+  - Tests y validación
+  - Despliegue a producción
 
 CAMBIOS v2.5 -> v2.5.1 (FIX BASADO EN DATOS BACKTEST):
   - REMOVIDA killzone ASIA (00:00-02:00 ET) - WR 25%, PF 0.49, -$1,682
@@ -100,7 +122,56 @@ NOTIFY_EMAIL_TO       = os.environ.get('NOTIFY_EMAIL_TO', 'tpdcmia@gmail.com')
 NOTIFY_EMAIL_FROM     = os.environ.get('NOTIFY_EMAIL_FROM', 'TPDCM-IA <onboarding@resend.dev>')
 NOTIFICATIONS_ENABLED = os.environ.get('NOTIFICATIONS_ENABLED', 'true').lower() == 'true'
 
-PAIR             = 'EUR_USD'
+PAIR             = 'EUR_USD'  # Par principal (legacy, mantenido para compatibilidad)
+
+# ═══ MULTI-PAR CONFIG (NUEVO v2.6) ═══
+# Sistema preparado para operar múltiples pares simultáneamente.
+# Cada par tiene su configuración independiente pero comparte:
+# - Días of Caution (filtros L/V)
+# - Cognitive Layer (Claude)
+# - Decision Gate (lógica)
+PAIRS = ['EUR_USD', 'GBP_USD']  # Pares activos
+
+PAIR_CONFIG = {
+    'EUR_USD': {
+        'display':       'EUR/USD',
+        'enabled':       True,                          # Activo
+        'min_score':     58,                            # Score mínimo normal
+        'min_score_wed': 65,                            # Wed/Thu más estricto
+        'risk_pct':      float(os.environ.get('RISK_PCT_EUR', '1.2')),
+        'atr_min_pips':  8,
+        'atr_max_pips':  80,
+        'adr_min':       0.20,
+        'spread_pips':   1.5,
+        'slippage_pips': 0.3,
+        'pip_value':     0.0001,                        # 1 pip = 0.0001
+        'tier':          'A',                           # Par confiable
+    },
+    'GBP_USD': {
+        'display':       'GBP/USD',
+        'enabled':       True,                          # Activo
+        'min_score':     65,                            # Más estricto inicialmente
+        'min_score_wed': 70,                            # Wed/Thu aún más estricto
+        'risk_pct':      float(os.environ.get('RISK_PCT_GBP', '1.0')),  # Menos risk inicialmente
+        'atr_min_pips':  10,                            # GBP más volátil
+        'atr_max_pips':  100,
+        'adr_min':       0.25,
+        'spread_pips':   2.0,                           # GBP spread más amplio
+        'slippage_pips': 0.5,
+        'pip_value':     0.0001,
+        'tier':          'B',                           # Par en validación
+    },
+}
+
+# Helper: obtener config de un par
+def get_pair_config(pair):
+    """Retorna configuración de un par específico."""
+    return PAIR_CONFIG.get(pair, PAIR_CONFIG['EUR_USD'])
+
+# Helper: lista de pares ENABLED
+def get_active_pairs():
+    """Retorna solo los pares enabled=True."""
+    return [p for p in PAIRS if PAIR_CONFIG.get(p, {}).get('enabled', False)]
 SONNET_MODEL     = 'claude-sonnet-4-6'
 OPUS_MODEL       = 'claude-opus-4-7'
 
@@ -539,7 +610,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.5.1')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-alpha')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -552,6 +623,29 @@ state = {
     'risk_pct_current': RISK_PCT, 'trading_paused': False, 'pause_reason': '',
     'active_trades_meta': {}, 'defensive_mode': False, 'defensive_reason': '',
 }
+
+# ═══ STATE SEPARADO POR PAR (NUEVO v2.6) ═══
+# Cada par tiene su propio tracking de trades, estado, etc.
+# Esto permite que GBP/USD opere independiente de EUR/USD.
+def _init_pair_state():
+    """Crea estado inicial para un par."""
+    return {
+        'last_analysis': None,
+        'last_decision': None,
+        'recent_trades': [],
+        'today_trades': [],
+        'consecutive_losses': 0,
+        'daily_pnl': 0.0,
+        'open_trades': {},
+    }
+
+pair_state = storage_read_json('state/pair_state.json', {
+    pair: _init_pair_state() for pair in PAIRS
+})
+# Asegurar que todos los pares activos tienen state
+for p in PAIRS:
+    if p not in pair_state:
+        pair_state[p] = _init_pair_state()
 
 memory = storage_read_json('memory/edge_tracker.json', {
     'recent_trades': [], 'session_stats': {}, 'sweep_quality_hist': [],
@@ -910,12 +1004,16 @@ async def oanda_put(path, body):
         r = await client.put(f'{OANDA_BASE}{path}', headers=headers, json=body); r.raise_for_status()
         return r.json()
 
-async def get_candles(granularity='H1', count=100):
-    data = await oanda_get(f'/v3/instruments/{PAIR}/candles?granularity={granularity}&count={count}&price=M')
+async def get_candles(granularity='H1', count=100, pair=None):
+    """v2.6: Acepta pair opcional, default PAIR (compatibilidad)."""
+    instrument = pair if pair else PAIR
+    data = await oanda_get(f'/v3/instruments/{instrument}/candles?granularity={granularity}&count={count}&price=M')
     return data.get('candles', [])
 
-async def get_candles_to(granularity='H1', count=500, to_dt=None):
-    path = f'/v3/instruments/{PAIR}/candles?granularity={granularity}&count={count}&price=M'
+async def get_candles_to(granularity='H1', count=500, to_dt=None, pair=None):
+    """v2.6: Acepta pair opcional."""
+    instrument = pair if pair else PAIR
+    path = f'/v3/instruments/{instrument}/candles?granularity={granularity}&count={count}&price=M'
     if to_dt: path += f'&to={to_dt.split(".")[0]}Z'
     data = await oanda_get(path)
     return data.get('candles', [])
@@ -928,14 +1026,18 @@ async def get_open_trades():
     data = await oanda_get(f'/v3/accounts/{OANDA_ACCOUNT}/openTrades')
     return data.get('trades', [])
 
-async def get_price():
-    data = await oanda_get(f'/v3/accounts/{OANDA_ACCOUNT}/pricing?instruments={PAIR}')
+async def get_price(pair=None):
+    """v2.6: Acepta pair opcional, default PAIR."""
+    instrument = pair if pair else PAIR
+    data = await oanda_get(f'/v3/accounts/{OANDA_ACCOUNT}/pricing?instruments={instrument}')
     p = data['prices'][0]
     return (float(p['bids'][0]['price']) + float(p['asks'][0]['price'])) / 2
 
-async def place_order(units, sl, tp, action):
+async def place_order(units, sl, tp, action, pair=None):
+    """v2.6: Acepta pair opcional, default PAIR."""
+    instrument = pair if pair else PAIR
     u = str(-abs(units)) if action == 'SELL' else str(abs(units))
-    order = {'type': 'MARKET', 'instrument': PAIR, 'units': u, 'timeInForce': 'FOK'}
+    order = {'type': 'MARKET', 'instrument': instrument, 'units': u, 'timeInForce': 'FOK'}
     if sl > 0: order['stopLossOnFill'] = {'price': f'{sl:.5f}'}
     if tp > 0: order['takeProfitOnFill'] = {'price': f'{tp:.5f}'}
     return await oanda_post(f'/v3/accounts/{OANDA_ACCOUNT}/orders', {'order': order})
@@ -3274,6 +3376,36 @@ async def audit_cognitive_health():
             'recent_failures_count': len(_cognitive_health['failures']),
             'failure_rate_1h': (len(_cognitive_health['failures']) / len(_cognitive_health['calls'])
                                 if _cognitive_health['calls'] else 0)}
+
+@app.get('/pairs')
+async def pairs_endpoint():
+    """v2.6 NUEVO: Estado de configuración multi-par."""
+    return {
+        'pairs_configured': PAIRS,
+        'active_pairs': get_active_pairs(),
+        'pair_config': {
+            pair: {
+                'display': cfg['display'],
+                'enabled': cfg['enabled'],
+                'min_score': cfg['min_score'],
+                'risk_pct': cfg['risk_pct'],
+                'tier': cfg['tier'],
+            } for pair, cfg in PAIR_CONFIG.items()
+        },
+        'pair_state': {
+            pair: {
+                'last_analysis': pair_state.get(pair, {}).get('last_analysis'),
+                'recent_trades_count': len(pair_state.get(pair, {}).get('recent_trades', [])),
+                'today_trades_count': len(pair_state.get(pair, {}).get('today_trades', [])),
+                'consecutive_losses': pair_state.get(pair, {}).get('consecutive_losses', 0),
+                'daily_pnl': pair_state.get(pair, {}).get('daily_pnl', 0),
+                'open_trades_count': len(pair_state.get(pair, {}).get('open_trades', {})),
+            } for pair in PAIRS
+        },
+        'version': '2.6.0-alpha',
+        'note': 'Multi-par en desarrollo. EUR/USD operativo, GBP/USD pendiente FASE 2-5.'
+    }
+
 
 @app.get('/regime')
 async def regime_endpoint():
