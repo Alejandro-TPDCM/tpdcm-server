@@ -1,8 +1,19 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-TPDCM-IA v2.4 — Trading Platform Deep Claude Machine Intelligence
+TPDCM-IA v2.5 — Trading Platform Deep Claude Machine Intelligence
 EUR/USD Institucional · Prop Firm System
 ═══════════════════════════════════════════════════════════════════════════════
+
+CAMBIOS v2.4 -> v2.5 (MULTI-KILLZONE + 2 TRADES/DÍA):
+  + Killzones expandidas: Asia (00:00-02:00) y London_Late (5:00-7:00) NUEVAS
+  + Sesión expandida: ahora 00:00-12:00 ET (antes 03:00-12:00)
+  + Permite 2 trades/día (max) en killzones distintas
+  + Mínimo 3 horas entre trades del mismo día
+  + Risk del 2do trade reducido al 70% (compounding con caution day)
+  + Scheduler nuevo: análisis en Asia, London_Late añadidos
+  + Days of Caution se mantiene intacto en L/V
+  + Stats v2.5 en summary: distribución por killzone, 2dos trades count
+  + Objetivo: aumentar de 0.3 a 0.7-0.8 trades/sem (~2.2-2.6% mensual)
 
 CAMBIOS v2.3 -> v2.4 (DAYS OF CAUTION ENGINE):
   + Days of Caution Engine basado en análisis cuantitativo
@@ -97,7 +108,7 @@ PAIR             = 'EUR_USD'
 SONNET_MODEL     = 'claude-sonnet-4-6'
 OPUS_MODEL       = 'claude-opus-4-7'
 
-SESSION_START_ET = 3
+SESSION_START_ET = 0   # NUEVO v2.5: Asia comienza 00:00 ET (antes era 3)
 SESSION_END_ET   = 12
 FRIDAY_CLOSE_ET  = 14
 MAX_DAILY_LOSS   = 1.0
@@ -123,6 +134,16 @@ CAUTION_MIN_CLAUDE_MULT   = 0.85   # Multiplier mínimo de Claude
 CAUTION_MIN_HTF_STRENGTH  = 0.50   # HTF debe ser fuerte
 CAUTION_BLOCKED_REGIMES   = ['choppy', 'compression']  # Régimenes que vetan
 CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']  # Severidades que vetan
+
+# ═══ MULTI-KILLZONE + 2 TRADES/DÍA (NUEVO v2.5) ═══
+# Sistema expandido para aumentar frecuencia manteniendo calidad institucional.
+# Objetivo: pasar de 0.3 trades/sem a 0.7-0.8 trades/sem para alcanzar 2.2-2.6% mensual.
+MAX_TRADES_PER_DAY        = 2     # Máximo 2 trades por día (uno por killzone distinta)
+SECOND_TRADE_RISK_MULT    = 0.7   # Risk del 2do trade del día reducido al 70%
+MIN_HOURS_BETWEEN_TRADES  = 3     # Mínimo 3 horas entre trades del mismo día
+# Nuevas killzones agregadas:
+# - ASIA (00:00-02:00 ET): liquidez asiática, range trading
+# - LONDON_LATE (5:00-7:00 ET): continuación London, antes de NY
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -521,7 +542,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.4.0')
+app = FastAPI(title='TPDCM-IA', version='2.5.0')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -588,8 +609,18 @@ def is_session():
     return SESSION_START_ET <= et.hour < SESSION_END_ET
 
 def get_killzone(hour):
-    if 3 <= hour < 5:  return 'LONDON_OPEN'
-    if 8 <= hour < 11: return 'NY_OPEN'
+    """
+    Killzones expandidas v2.5:
+    - ASIA:        00:00-02:00 ET (liquidez asiática)
+    - LONDON_OPEN: 03:00-05:00 ET (apertura Londres)
+    - LONDON_LATE: 05:00-07:00 ET (continuación Londres) [NUEVO v2.5]
+    - NY_OPEN:     08:00-11:00 ET (apertura Nueva York)
+    - NY_LATE:     11:00-12:00 ET (cierre NY)
+    """
+    if 0 <= hour < 2:   return 'ASIA'          # NUEVO v2.5
+    if 3 <= hour < 5:   return 'LONDON_OPEN'
+    if 5 <= hour < 7:   return 'LONDON_LATE'   # NUEVO v2.5
+    if 8 <= hour < 11:  return 'NY_OPEN'
     if 11 <= hour < 12: return 'NY_LATE'
     return None
 
@@ -2054,14 +2085,53 @@ def update_risk(win, pnl):
 async def execute_signal(decision):
     if state['trading_paused'] or decision['action'] == 'HOLD': return
     if decision['confidence'] < MIN_CONFIDENCE: return
+    
+    # ═══ v2.5: Validación de máximo 2 trades por día y killzones distintas ═══
+    today_str = now_et().strftime('%Y-%m-%d')
+    today_hour = now_et().hour
+    today_trades = state.setdefault('today_trades', {})
+    # Reset diario
+    if today_trades.get('date') != today_str:
+        today_trades = {'date': today_str, 'trades': []}
+        state['today_trades'] = today_trades
+    
+    trades_done = today_trades['trades']
+    if len(trades_done) >= MAX_TRADES_PER_DAY:
+        log.info(f'[v2.5] Día {today_str}: ya hay {len(trades_done)} trades. Skip.')
+        return
+    
+    if trades_done:
+        current_kz = decision.get('killzone', '')
+        prev_kzs = [t.get('killzone', '') for t in trades_done]
+        if current_kz in prev_kzs:
+            log.info(f'[v2.5] Killzone {current_kz} ya usada hoy. Skip 2do trade.')
+            return
+        last_trade = trades_done[-1]
+        if today_hour - last_trade.get('hour', 0) < MIN_HOURS_BETWEEN_TRADES:
+            log.info(f'[v2.5] Solo {today_hour - last_trade.get("hour", 0)}h desde último trade. Skip.')
+            return
+    
     sl = decision.get('sl', 0); tp = decision.get('tp1', 0)
     sz = max(1000, int(decision.get('pos_size', 1000)))
+    # Aplicar risk reducido para 2do trade del día
+    if trades_done:
+        sz = int(sz * SECOND_TRADE_RISK_MULT)
+        log.info(f'[v2.5] 2do trade del día - risk x{SECOND_TRADE_RISK_MULT} - sz={sz}')
+    
     if sl <= 0 or tp <= 0: return
     try:
         result = await place_order(sz, sl, tp, decision['action'])
         fill = result.get('orderFillTransaction', {})
         trade_id = fill.get('tradeOpened', {}).get('tradeID', '')
         if trade_id:
+            # NUEVO v2.5: Registrar en today_trades para tracking diario
+            today_trades['trades'].append({
+                'trade_id': trade_id,
+                'killzone': decision.get('killzone', ''),
+                'hour': now_et().hour,
+                'action': decision['action']
+            })
+            state['today_trades'] = today_trades
             state['active_trades_meta'][trade_id] = {
                 'open_time': now_utc().isoformat(),
                 'action': decision['action'],
@@ -2312,7 +2382,10 @@ async def run_backtesting():
         d1_all = []
         try: d1_all = await get_candles_to('D', 300)
         except Exception: pass
-        cnt = defaultdict(int); last_day = ''; last_idx = -999
+        cnt = defaultdict(int)
+        # NUEVO v2.5: Tracking de trades por día (max 2/día en killzones distintas)
+        day_trades = {}  # {fecha: [{'idx': i, 'killzone': kz, 'hour': h}, ...]}
+        last_idx = -999
         d1_by_date = {c.get('time','')[:10]: i for i, c in enumerate(d1_all)}
         for i in range(30, len(h1) - 26):
             c_time = h1[i].get('time', ''); c_price = float(h1[i]['mid']['c'])
@@ -2329,7 +2402,19 @@ async def run_backtesting():
                 nb, _ = is_news_blocked(cdt, all_news)
                 if nb: cnt['news'] += 1; continue
             else: nb = False
-            if c_day == last_day: cnt['cooldown'] += 1; continue
+            # NUEVO v2.5: Permitir hasta MAX_TRADES_PER_DAY (2) en killzones distintas
+            today_trades = day_trades.get(c_day, [])
+            if len(today_trades) >= MAX_TRADES_PER_DAY:
+                cnt['cooldown'] += 1; continue
+            # Si ya hay un trade hoy, debe ser en killzone diferente
+            if today_trades:
+                prev_killzones = [t['killzone'] for t in today_trades]
+                if kill in prev_killzones:
+                    cnt['cooldown'] += 1; continue
+                # Y debe haber pasado MIN_HOURS_BETWEEN_TRADES desde el último
+                last_trade = today_trades[-1]
+                if c_h - last_trade['hour'] < MIN_HOURS_BETWEEN_TRADES:
+                    cnt['cooldown'] += 1; continue
             if i - last_idx < 5: cnt['cooldown'] += 1; continue
             h1_w = h1[max(0, i-60):i+1]
             atr = compute_atr(h1_w); atr_p = atr * 10000
@@ -2390,6 +2475,14 @@ async def run_backtesting():
                 risk_mult = CAUTION_RISK_MULTIPLIER  # 0.5
                 log.debug(f'[BT][CAUTION] {day_name} elite trade: score {score["total"]} - risk 50%')
             
+            # ═══ 2 TRADES/DÍA (NUEVO v2.5) ═══
+            # Si es el 2do trade del día, aplicar risk reducido adicional
+            is_second_trade = len(today_trades) >= 1
+            if is_second_trade:
+                # Aplicar multiplicador 0.7 al 2do trade (multiplica con caution si aplica)
+                risk_mult = risk_mult * SECOND_TRADE_RISK_MULT
+                log.debug(f'[BT][v2.5] 2do trade del día {c_day} en {kill}: risk x{SECOND_TRADE_RISK_MULT}')
+            
             buf = atr * 0.20
             if action == 'SELL':
                 sl = sweep.get('sweep_high', sweep['level']) + buf; sl_dist = abs(sl - c_price)
@@ -2400,7 +2493,12 @@ async def run_backtesting():
             if sl_dist <= 0 or sl_dist > c_price * 0.012: cnt['sl_dist'] += 1; continue
             sim = simulate_trade(h1, i, action, sl, tp1, tp2, balance, atr, risk_multiplier=risk_mult)
             if not sim: continue
-            last_day = c_day; last_idx = i
+            # NUEVO v2.5: Registrar trade en day_trades para tracking de límite diario
+            day_trades.setdefault(c_day, []).append({
+                'idx': i, 'killzone': kill, 'hour': c_h,
+                'is_second': is_second_trade
+            })
+            last_idx = i
             td = {'action': action, 'outcome': sim['outcome'], 'result': sim['result'],
                   'score': score['total'], 'killzone': kill, 'displacement_strength': ds,
                   'inducement_quality': ind[1], 'bos_quality': bos_data[1],
@@ -2438,7 +2536,9 @@ async def run_backtesting():
                 'failure_factors': ', '.join(fail_factors) if fail_factors else 'N/A',
                 'caution_mode': is_caution,
                 'risk_multiplier': risk_mult,
-                'day_of_week': cdt.strftime('%A') if cdt else 'Unknown'})
+                'day_of_week': cdt.strftime('%A') if cdt else 'Unknown',
+                'is_second_trade': is_second_trade,
+                'killzone_type': kill})
         log.info(f'[BT] {len(all_trades)} trades')
         log.info(f'[BT][CAUTION] Vetos por caution day: '
                  f'score={cnt.get("caution_score",0)} htf={cnt.get("caution_htf",0)} '
@@ -2446,6 +2546,14 @@ async def run_backtesting():
                  f'ind={cnt.get("caution_ind",0)}')
         caution_trades = [t for t in all_trades if t.get('caution_mode')]
         log.info(f'[BT][CAUTION] Trades con caution mode (risk 50%): {len(caution_trades)}')
+        # NUEVO v2.5: Estadísticas de multi-killzone y 2 trades/día
+        second_trades = [t for t in all_trades if t.get('is_second_trade')]
+        kz_distribution = {}
+        for t in all_trades:
+            kz = t.get('killzone_type', 'UNKNOWN')
+            kz_distribution[kz] = kz_distribution.get(kz, 0) + 1
+        log.info(f'[BT][v2.5] Trades 2do del día (risk x{SECOND_TRADE_RISK_MULT}): {len(second_trades)}')
+        log.info(f'[BT][v2.5] Distribución por killzone: {kz_distribution}')
     except Exception as e:
         log.error(f'[BT] Error: {e}', exc_info=True)
     if all_trades:
@@ -2470,7 +2578,11 @@ async def run_backtesting():
             'caution_day_trades': len([t for t in all_trades if t.get('caution_mode')]),
             'caution_day_vetos': sum([cnt.get('caution_score',0), cnt.get('caution_htf',0),
                                        cnt.get('caution_sweep',0), cnt.get('caution_disp',0),
-                                       cnt.get('caution_ind',0)])}
+                                       cnt.get('caution_ind',0)]),
+            # NUEVO v2.5: Stats multi-killzone y 2 trades/día
+            'second_trades_count': len([t for t in all_trades if t.get('is_second_trade')]),
+            'killzone_distribution': {kz: sum(1 for t in all_trades if t.get('killzone_type') == kz)
+                                       for kz in ['ASIA', 'LONDON_OPEN', 'LONDON_LATE', 'NY_OPEN', 'NY_LATE']}}
         all_trades.sort(key=lambda x: x['date'], reverse=True)
         bt_state['trades'] = all_trades[:300]
         bt_state['last_run'] = now_utc().isoformat()
@@ -2952,13 +3064,13 @@ RISK ACTUAL: {state.get('risk_pct_current', 1.0):.2f}%
 async def root():
     """Endpoint raiz simple para monitoreo externo (UptimeRobot, etc).
     Responde tanto a GET como HEAD requests."""
-    return {'service': 'TPDCM-IA', 'version': '2.4', 'status': 'alive'}
+    return {'service': 'TPDCM-IA', 'version': '2.5', 'status': 'alive'}
 
 
 @app.get('/health')
 async def health():
     ict = state.get('last_analysis', {}).get('ict', {})
-    return {'status': 'ok', 'version': '2.4', 'pair': 'EUR/USD',
+    return {'status': 'ok', 'version': '2.5', 'pair': 'EUR/USD',
             'trading_paused': state['trading_paused'],
             'pause_reason': state['pause_reason'],
             'consecutive_losses': state['consecutive_losses'],
@@ -3423,9 +3535,12 @@ async def startup():
     sched.add_job(run_analysis,    'interval', hours=1,   id='analysis', args=[AUTO_EXECUTE])
     sched.add_job(monitor_trades,  'interval', minutes=5, id='monitor')
     sched.add_job(run_backtesting, CronTrigger(hour=3, minute=30, timezone=ZoneInfo('America/New_York')), id='bt_daily')
-    sched.add_job(run_analysis, CronTrigger(hour=3,  minute=15, timezone=ZoneInfo('America/New_York')), id='london', args=[False])
-    sched.add_job(run_analysis, CronTrigger(hour=8,  minute=0,  timezone=ZoneInfo('America/New_York')), id='ny',     args=[AUTO_EXECUTE])
-    sched.add_job(run_analysis, CronTrigger(hour=10, minute=0,  timezone=ZoneInfo('America/New_York')), id='ny2',    args=[AUTO_EXECUTE])
+    # NUEVO v2.5: Análisis en las nuevas killzones
+    sched.add_job(run_analysis, CronTrigger(hour=0,  minute=30, timezone=ZoneInfo('America/New_York')), id='asia',         args=[AUTO_EXECUTE])  # Asia killzone
+    sched.add_job(run_analysis, CronTrigger(hour=3,  minute=15, timezone=ZoneInfo('America/New_York')), id='london_open',  args=[AUTO_EXECUTE])  # London open
+    sched.add_job(run_analysis, CronTrigger(hour=5,  minute=30, timezone=ZoneInfo('America/New_York')), id='london_late',  args=[AUTO_EXECUTE])  # London late NUEVO v2.5
+    sched.add_job(run_analysis, CronTrigger(hour=8,  minute=0,  timezone=ZoneInfo('America/New_York')), id='ny_open',      args=[AUTO_EXECUTE])
+    sched.add_job(run_analysis, CronTrigger(hour=10, minute=0,  timezone=ZoneInfo('America/New_York')), id='ny_late',      args=[AUTO_EXECUTE])
     # Reportes por correo (v2.1)
     sched.add_job(scheduled_pre_london_report, CronTrigger(hour=7, minute=0,
                   timezone=ZoneInfo('America/New_York')), id='report_pre_london')
