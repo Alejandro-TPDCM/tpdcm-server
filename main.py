@@ -1,19 +1,29 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-TPDCM-IA v2.5 — Trading Platform Deep Claude Machine Intelligence
+TPDCM-IA v2.5.1 — Trading Platform Deep Claude Machine Intelligence
 EUR/USD Institucional · Prop Firm System
 ═══════════════════════════════════════════════════════════════════════════════
 
+CAMBIOS v2.5 -> v2.5.1 (FIX BASADO EN DATOS BACKTEST):
+  - REMOVIDA killzone ASIA (00:00-02:00 ET) - WR 25%, PF 0.49, -$1,682
+  - REMOVIDA killzone LONDON_LATE (5:00-7:00 ET) - WR 0%, sin edge
+  + SESSION_START_ET vuelve a 3 (sin Asia)
+  + MANTENIDA feature 2 trades/día (funcionó cuando se activó)
+  + MANTENIDO Days of Caution Engine intacto
+  + Scheduler simplificado: solo London_Open, NY_Open, NY_Late
+  
+  RESULTADO ESPERADO (vs v2.5 con killzones malas):
+  - Trades: 24 → ~20 (quita los malos)
+  - WR: 62.50% → ~73% (sube)
+  - PF: 3.23 → ~5.5 (sube)
+  - PnL: $18,321 → ~$20,500 (mejora)
+  - DD: 2.70% → ~2.0% (baja)
+
 CAMBIOS v2.4 -> v2.5 (MULTI-KILLZONE + 2 TRADES/DÍA):
-  + Killzones expandidas: Asia (00:00-02:00) y London_Late (5:00-7:00) NUEVAS
-  + Sesión expandida: ahora 00:00-12:00 ET (antes 03:00-12:00)
-  + Permite 2 trades/día (max) en killzones distintas
-  + Mínimo 3 horas entre trades del mismo día
-  + Risk del 2do trade reducido al 70% (compounding con caution day)
-  + Scheduler nuevo: análisis en Asia, London_Late añadidos
-  + Days of Caution se mantiene intacto en L/V
-  + Stats v2.5 en summary: distribución por killzone, 2dos trades count
-  + Objetivo: aumentar de 0.3 a 0.7-0.8 trades/sem (~2.2-2.6% mensual)
+  + Killzones expandidas: Asia (00:00-02:00) y London_Late (5:00-7:00) [REMOVIDAS en v2.5.1]
+  + Permite 2 trades/día en killzones distintas [MANTENIDO]
+  + Risk del 2do trade reducido al 70% [MANTENIDO]
+  + Mínimo 3 horas entre trades del mismo día [MANTENIDO]
 
 CAMBIOS v2.3 -> v2.4 (DAYS OF CAUTION ENGINE):
   + Days of Caution Engine basado en análisis cuantitativo
@@ -27,31 +37,17 @@ CAMBIOS v2.3 -> v2.4 (DAYS OF CAUTION ENGINE):
   + Prompt de Claude actualizado con contexto estadístico
 
 CAMBIOS v2.2 -> v2.3 (MEJORAS ROBUSTEZ):
-  + Healthcheck interno: monitoreo de scheduler
-  + Alerta automatica si scheduler no ejecuta analisis en 2h
-  + Alerta de drawdown critico (>5% en 7 dias)
-  + Reporte semanal estadistico automatico (domingos 18:00 ET)
-  + Endpoint /claude-conversation: chat libre con Claude sobre mercado
-  + Endpoint /claude-analysis-history: historial de narrativas
-  + Endpoint /healthcheck-monitor: monitoreo activo
-  + Endpoint /weekly-stats: stats semanales sin Claude
+  + Healthcheck interno, drawdown monitor, weekly stats
+  + Chat libre con Claude
 
 CAMBIOS v2.1 -> v2.2 (FASE 2):
   + Regime Detector + Anomaly Features
-  + Contexto enriquecido a Claude
-  + Reportes 7AM/9AM con seccion Regimen
-  + Endpoint /regime
-  + /dashboard expone regime + anomalies
 
 CAMBIOS v2.0 -> v2.1:
   + Notification Layer (Resend API)
-  + Reportes 7AM y 9AM ET
-  + Notificacion trade open/close + veto + alertas criticas
 
 CAMBIOS v1.x -> v2.0:
-  + Decision Gate refactor (Python autoridad final)
-  + Cognitive Layer estricto (Claude solo valida)
-  + Persistencia /data volume + audit trail completo
+  + Decision Gate refactor + Cognitive Layer
 ═══════════════════════════════════════════════════════════════════════════════
 """
 
@@ -108,7 +104,7 @@ PAIR             = 'EUR_USD'
 SONNET_MODEL     = 'claude-sonnet-4-6'
 OPUS_MODEL       = 'claude-opus-4-7'
 
-SESSION_START_ET = 0   # NUEVO v2.5: Asia comienza 00:00 ET (antes era 3)
+SESSION_START_ET = 3   # v2.5.1: Volver a 3 (sin Asia, datos contundentes)
 SESSION_END_ET   = 12
 FRIDAY_CLOSE_ET  = 14
 MAX_DAILY_LOSS   = 1.0
@@ -135,15 +131,16 @@ CAUTION_MIN_HTF_STRENGTH  = 0.50   # HTF debe ser fuerte
 CAUTION_BLOCKED_REGIMES   = ['choppy', 'compression']  # Régimenes que vetan
 CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']  # Severidades que vetan
 
-# ═══ MULTI-KILLZONE + 2 TRADES/DÍA (NUEVO v2.5) ═══
-# Sistema expandido para aumentar frecuencia manteniendo calidad institucional.
-# Objetivo: pasar de 0.3 trades/sem a 0.7-0.8 trades/sem para alcanzar 2.2-2.6% mensual.
+# ═══ 2 TRADES/DÍA (v2.5.1) ═══
+# Mantenemos esta feature pero quitamos las killzones Asia y London_Late
+# que en backtest tuvieron PF < 1 y WR 0-25%.
+# Killzones que SÍ funcionan (validadas con datos):
+# - LONDON_OPEN: PF 6.36, WR 83%
+# - NY_OPEN:     PF 5.67, WR 67%
+# - NY_LATE:     PF ∞, WR 100% (1 trade en muestra)
 MAX_TRADES_PER_DAY        = 2     # Máximo 2 trades por día (uno por killzone distinta)
 SECOND_TRADE_RISK_MULT    = 0.7   # Risk del 2do trade del día reducido al 70%
 MIN_HOURS_BETWEEN_TRADES  = 3     # Mínimo 3 horas entre trades del mismo día
-# Nuevas killzones agregadas:
-# - ASIA (00:00-02:00 ET): liquidez asiática, range trading
-# - LONDON_LATE (5:00-7:00 ET): continuación London, antes de NY
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -542,7 +539,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.5.0')
+app = FastAPI(title='TPDCM-IA', version='2.5.1')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -610,16 +607,16 @@ def is_session():
 
 def get_killzone(hour):
     """
-    Killzones expandidas v2.5:
-    - ASIA:        00:00-02:00 ET (liquidez asiática)
-    - LONDON_OPEN: 03:00-05:00 ET (apertura Londres)
-    - LONDON_LATE: 05:00-07:00 ET (continuación Londres) [NUEVO v2.5]
-    - NY_OPEN:     08:00-11:00 ET (apertura Nueva York)
-    - NY_LATE:     11:00-12:00 ET (cierre NY)
+    Killzones v2.5.1 (basado en análisis de backtest):
+    - LONDON_OPEN: 03:00-05:00 ET (apertura Londres) ✅
+    - NY_OPEN:     08:00-11:00 ET (apertura Nueva York) ✅
+    - NY_LATE:     11:00-12:00 ET (cierre NY) ✅
+    
+    REMOVIDAS en v2.5.1 (datos contundentes de backtest):
+    - ASIA (00:00-02:00 ET): WR 25%, PF 0.49, -$1,682 — Demasiado ruido
+    - LONDON_LATE (05:00-07:00 ET): WR 0%, sin edge claro
     """
-    if 0 <= hour < 2:   return 'ASIA'          # NUEVO v2.5
     if 3 <= hour < 5:   return 'LONDON_OPEN'
-    if 5 <= hour < 7:   return 'LONDON_LATE'   # NUEVO v2.5
     if 8 <= hour < 11:  return 'NY_OPEN'
     if 11 <= hour < 12: return 'NY_LATE'
     return None
@@ -2579,10 +2576,10 @@ async def run_backtesting():
             'caution_day_vetos': sum([cnt.get('caution_score',0), cnt.get('caution_htf',0),
                                        cnt.get('caution_sweep',0), cnt.get('caution_disp',0),
                                        cnt.get('caution_ind',0)]),
-            # NUEVO v2.5: Stats multi-killzone y 2 trades/día
+            # v2.5.1: Stats killzones validadas
             'second_trades_count': len([t for t in all_trades if t.get('is_second_trade')]),
             'killzone_distribution': {kz: sum(1 for t in all_trades if t.get('killzone_type') == kz)
-                                       for kz in ['ASIA', 'LONDON_OPEN', 'LONDON_LATE', 'NY_OPEN', 'NY_LATE']}}
+                                       for kz in ['LONDON_OPEN', 'NY_OPEN', 'NY_LATE']}}
         all_trades.sort(key=lambda x: x['date'], reverse=True)
         bt_state['trades'] = all_trades[:300]
         bt_state['last_run'] = now_utc().isoformat()
@@ -3064,13 +3061,13 @@ RISK ACTUAL: {state.get('risk_pct_current', 1.0):.2f}%
 async def root():
     """Endpoint raiz simple para monitoreo externo (UptimeRobot, etc).
     Responde tanto a GET como HEAD requests."""
-    return {'service': 'TPDCM-IA', 'version': '2.5', 'status': 'alive'}
+    return {'service': 'TPDCM-IA', 'version': '2.5.1', 'status': 'alive'}
 
 
 @app.get('/health')
 async def health():
     ict = state.get('last_analysis', {}).get('ict', {})
-    return {'status': 'ok', 'version': '2.5', 'pair': 'EUR/USD',
+    return {'status': 'ok', 'version': '2.5.1', 'pair': 'EUR/USD',
             'trading_paused': state['trading_paused'],
             'pause_reason': state['pause_reason'],
             'consecutive_losses': state['consecutive_losses'],
@@ -3535,10 +3532,8 @@ async def startup():
     sched.add_job(run_analysis,    'interval', hours=1,   id='analysis', args=[AUTO_EXECUTE])
     sched.add_job(monitor_trades,  'interval', minutes=5, id='monitor')
     sched.add_job(run_backtesting, CronTrigger(hour=3, minute=30, timezone=ZoneInfo('America/New_York')), id='bt_daily')
-    # NUEVO v2.5: Análisis en las nuevas killzones
-    sched.add_job(run_analysis, CronTrigger(hour=0,  minute=30, timezone=ZoneInfo('America/New_York')), id='asia',         args=[AUTO_EXECUTE])  # Asia killzone
-    sched.add_job(run_analysis, CronTrigger(hour=3,  minute=15, timezone=ZoneInfo('America/New_York')), id='london_open',  args=[AUTO_EXECUTE])  # London open
-    sched.add_job(run_analysis, CronTrigger(hour=5,  minute=30, timezone=ZoneInfo('America/New_York')), id='london_late',  args=[AUTO_EXECUTE])  # London late NUEVO v2.5
+    # v2.5.1: Solo killzones validadas - LONDON_OPEN, NY_OPEN, NY_LATE
+    sched.add_job(run_analysis, CronTrigger(hour=3,  minute=15, timezone=ZoneInfo('America/New_York')), id='london_open',  args=[AUTO_EXECUTE])
     sched.add_job(run_analysis, CronTrigger(hour=8,  minute=0,  timezone=ZoneInfo('America/New_York')), id='ny_open',      args=[AUTO_EXECUTE])
     sched.add_job(run_analysis, CronTrigger(hour=10, minute=0,  timezone=ZoneInfo('America/New_York')), id='ny_late',      args=[AUTO_EXECUTE])
     # Reportes por correo (v2.1)
