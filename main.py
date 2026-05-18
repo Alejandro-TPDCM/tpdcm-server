@@ -1,10 +1,27 @@
 """
 ═══════════════════════════════════════════════════════════════════════════════
-TPDCM-IA v2.6.0-beta — Trading Platform Deep Claude Machine Intelligence
+TPDCM-IA v2.6.0-rc1 — Trading Platform Deep Claude Machine Intelligence
 EUR/USD + GBP/USD Institucional · Prop Firm System
 ═══════════════════════════════════════════════════════════════════════════════
 
-CAMBIOS v2.6.0-alpha -> v2.6.0-beta (FASE 2: Run analysis multi-par):
+CAMBIOS v2.6.0-beta -> v2.6.0-rc1 (FIX CRÍTICO):
+  🔧 Reescrita run_backtesting_pair() para usar run_ict_pipeline()
+  🔧 Eliminadas llamadas a funciones inexistentes:
+     ❌ build_h4_from_h1() - no existía
+     ❌ htf_bias() - era detect_htf_bias()
+     ❌ displacement_strength() - era detect_displacement()
+     ❌ inducement_analysis() - era detect_inducement()
+     ❌ liquidity_targets() - era compute_liquidity_target()
+     ❌ adr_remaining_pct() - no existía (ahora viene del pipeline)
+     ❌ atr_pips() - no existía (ahora viene del pipeline)
+  ✅ Ahora usa run_ict_pipeline() (mismo motor que análisis vivo)
+  ✅ Garantiza PARIDAD entre backtest y producción
+  ✅ Sintaxis Python válida, 0 funciones inexistentes
+  
+  FASE 2 (run_analysis_pair) NO se tocó - sigue correcta.
+  FASE 1 (estructura multi-par) NO se tocó - sigue correcta.
+
+CAMBIOS v2.6.0-alpha -> v2.6.0-beta (FASE 2+3 multi-par):
   + Nueva función run_analysis_pair(pair) - procesa UN par
   + run_analysis() ahora itera sobre PAIRS activos
   + execute_signal(decision, pair=None) acepta par específico
@@ -623,7 +640,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-rc1')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -2553,15 +2570,15 @@ def _sim_r(total, outcome, units, fill, sl_dist, tp2, sl_be, be_vela, par, pnl_p
 
 async def run_backtesting_pair(pair):
     """
-    v2.6: Backtest para un par específico.
-    Retorna lista de trades y stats. NO actualiza bt_state global.
+    v2.6.0-rc1: Backtest para un par específico.
+    Usa run_ict_pipeline() existente (mismo motor que análisis vivo).
+    Garantiza paridad EUR/USD entre backtest y producción.
     """
     pair_cfg = get_pair_config(pair)
     display = pair_cfg['display']
     
-    log.info(f'[BT][{display}] BACKTESTING INICIANDO')
+    log.info(f'[BT][{display}] BACKTESTING INICIANDO (v2.6.0-rc1)')
     all_trades = []
-    trade_log = []
     balance = state.get('balance', 110000.0)
     ET = ZoneInfo('America/New_York')
     
@@ -2571,7 +2588,7 @@ async def run_backtesting_pair(pair):
     all_news = HIGH_IMPACT_EVENTS + live_news
     
     try:
-        # Obtener velas del par específico
+        # Obtener velas del par específico (paginado para histórico largo)
         h1 = await get_candles_to('H1', 500, pair=pair)
         for req in range(1, 17):
             if len(h1) >= 8500: break
@@ -2583,39 +2600,47 @@ async def run_backtesting_pair(pair):
             await asyncio.sleep(0.3)
         log.info(f'[BT][{display}] {len(h1)} velas H1 totales')
         
+        # H4 y D1 para contexto HTF
+        h4_all = []
         d1_all = []
         try: d1_all = await get_candles_to('D', 300, pair=pair)
+        except Exception: pass
+        try: h4_all = await get_candles_to('H4', 1000, pair=pair)
         except Exception: pass
         
         cnt = defaultdict(int)
         day_trades = {}
         last_idx = -999
-        d1_by_date = {c.get('time','')[:10]: i for i, c in enumerate(d1_all)}
         
-        # Usar configuración del par
+        # Configuración del par
         min_score_pair = pair_cfg['min_score']
         risk_pct_pair = pair_cfg['risk_pct']
         
         for i in range(30, len(h1) - 26):
             c_time = h1[i].get('time', '')
             c_price = float(h1[i]['mid']['c'])
+            
+            # Determinar hora ET, día semana, fecha
             try:
                 cdt = datetime.fromisoformat(c_time.replace('Z', '+00:00')).astimezone(ET)
-                c_h = cdt.hour; c_dow = cdt.weekday(); c_day = cdt.strftime('%Y-%m-%d')
+                c_h = cdt.hour
+                c_dow = cdt.weekday()
+                c_day = cdt.strftime('%Y-%m-%d')
                 if c_dow in (5, 6): cnt['weekend'] += 1; continue
                 if not (SESSION_START_ET <= c_h < SESSION_END_ET): cnt['sesion'] += 1; continue
             except Exception:
-                c_day = c_time[:10]; c_h = 8; cdt = None
+                c_day = c_time[:10]; c_h = 8; cdt = None; c_dow = 2
             
             kill = get_killzone(c_h)
             if not kill: cnt['sesion'] += 1; continue
             
+            # News blocked check
             if cdt:
                 nb, _ = is_news_blocked(cdt, all_news)
                 if nb: cnt['news'] += 1; continue
             else: nb = False
             
-            # Permitir hasta MAX_TRADES_PER_DAY (2) en killzones distintas
+            # Max 2 trades/día en killzones distintas (por par)
             today_trades = day_trades.get(c_day, [])
             if len(today_trades) >= MAX_TRADES_PER_DAY:
                 cnt['cooldown'] += 1; continue
@@ -2629,104 +2654,113 @@ async def run_backtesting_pair(pair):
             
             if i - last_idx < 5: cnt['cooldown'] += 1; continue
             
-            h1_w = h1[max(0,i-30):i+1]
-            h4_w = build_h4_from_h1(h1_w)
+            # Construir ventanas H1, H4, D1
+            h1_w = h1[max(0, i-80):i+1]
             
-            # ICT pipeline para este par
-            htf_b, htf_s = htf_bias(h4_w, []) if h4_w else ('neutral', 0)
-            sweep = detect_sweep(h1_w)
-            if not sweep.get('detected'): cnt['no_sweep'] += 1; continue
+            # H4: tomar las velas anteriores al timestamp actual
+            h4_w = []
+            if h4_all:
+                h4_w = [c for c in h4_all if c.get('time', '') < c_time][-50:]
             
-            ds = displacement_strength(h1_w, sweep.get('idx', len(h1_w)-1))['strength']
-            ind = inducement_analysis(h1_w, sweep)
-            bos_data = ('none', 'none')  # Simplificado en backtest
-            fvg_ob = detect_fvg_ob(h1_w, sweep)
+            d1_w = []
+            if d1_all:
+                d1_w = [c for c in d1_all if c.get('time', '') < c_time][-10:]
             
-            tt, tl = '', 0
-            target_levels = liquidity_targets(h1_w, h4_w, c_price, htf_b)
-            if target_levels:
-                tt, tl = target_levels[0]
+            # ═══ USAR run_ict_pipeline() ═══
+            # Mismo motor que análisis en vivo. Garantiza paridad.
+            ict = run_ict_pipeline(
+                h1=h1_w, h4=h4_w, d1=d1_w,
+                price=c_price, balance=balance,
+                risk_pct=risk_pct_pair, hour=c_h,
+                news_events=all_news
+            )
             
-            adr_pct = adr_remaining_pct(d1_all, d1_by_date, c_day, c_price)
-            atr_p = atr_pips(h1_w[-14:]) if len(h1_w) >= 14 else 0
+            # Filtros del pipeline
+            if not ict.get('sweep', {}).get('detected'):
+                cnt['no_sweep'] += 1; continue
             
-            # Filtros ATR y ADR (config por par)
-            if atr_p < pair_cfg['atr_min_pips'] or atr_p > pair_cfg['atr_max_pips']:
-                cnt['atr'] += 1; continue
-            if adr_pct < pair_cfg['adr_min']: cnt['adr'] += 1; continue
+            score = ict.get('score', {})
+            score_total = score.get('total', 0)
+            action = score.get('action')
             
-            action = 'BUY' if sweep.get('level_type') == 'low' else 'SELL'
-            if htf_b == 'bullish' and action == 'SELL': cnt['htf_mismatch'] += 1; continue
-            if htf_b == 'bearish' and action == 'BUY': cnt['htf_mismatch'] += 1; continue
+            if not action: cnt['no_action'] += 1; continue
             
-            rh = [float(c['mid']['h']) for c in h1_w[-8:]]
-            rl = [float(c['mid']['l']) for c in h1_w[-8:]]
-            consol_ok = (max(rh) - min(rl)) >= atr_p * pair_cfg['pip_value'] * 0.8
+            # Score mínimo (config del par + Wed/Thu)
+            min_sc = pair_cfg['min_score_wed'] if c_dow in (2, 3) else min_score_pair
+            if state.get('defensive_mode'): min_sc += 10
             
-            c_dow_n = cdt.weekday() if cdt else 2
-            min_sc = pair_cfg['min_score_wed'] if c_dow_n in (2, 3) else min_score_pair
-            min_sc += 10 if state.get('defensive_mode') else 0
-            score = compute_score(htf_b, htf_s, sweep, ind, ds, bos_data, fvg_ob,
-                                  kill, adr_pct, atr_p, consol_ok, tl > 0)
-            if score['total'] < min_sc: cnt['score'] += 1; continue
-            
-            # Days of Caution Filter (igual que antes, aplica a todos los pares)
+            # Days of Caution (L/V)
             risk_mult = 1.0
-            is_caution = (c_dow_n in (0, 4)) if cdt else False
+            is_caution = c_dow in (0, 4)  # Lunes=0, Viernes=4
+            
             if is_caution:
-                day_name = cdt.strftime('%A') if cdt else 'Unknown'
-                if score['total'] < CAUTION_MIN_SCORE:
-                    cnt['caution_score'] += 1
-                    continue
-                if htf_s < CAUTION_MIN_HTF_STRENGTH:
-                    cnt['caution_htf'] += 1
-                    continue
-                if sweep.get('quality') == 'low':
-                    cnt['caution_sweep'] += 1
-                    continue
-                if ds == 'none':
-                    cnt['caution_disp'] += 1
-                    continue
-                if ind[1] in ('none', 'weak'):
-                    cnt['caution_ind'] += 1
-                    continue
+                regime_type = ict.get('regime', {}).get('type', 'unknown')
+                anomaly_sev = ict.get('anomalies', {}).get('severity', 'none')
+                htf_str = ict.get('htf_strength', 0)
+                sweep_q = ict.get('sweep', {}).get('quality', '')
+                disp_str = ict.get('displacement', {}).get('strength', 'none')
+                ind_q = ict.get('inducement', {}).get('quality', 'none')
+                
+                # Filtros caution
+                if score_total < CAUTION_MIN_SCORE:
+                    cnt['caution_score'] += 1; continue
+                if regime_type in CAUTION_BLOCKED_REGIMES:
+                    cnt['caution_regime'] += 1; continue
+                if anomaly_sev in CAUTION_BLOCKED_ANOMALIES:
+                    cnt['caution_anomaly'] += 1; continue
+                if htf_str < CAUTION_MIN_HTF_STRENGTH:
+                    cnt['caution_htf'] += 1; continue
+                if sweep_q == 'low':
+                    cnt['caution_sweep'] += 1; continue
+                if disp_str == 'none':
+                    cnt['caution_disp'] += 1; continue
+                if ind_q in ('none', 'weak'):
+                    cnt['caution_ind'] += 1; continue
+                
                 risk_mult = CAUTION_RISK_MULTIPLIER
             
-            # 2do trade del día
+            # Filtro score normal
+            if score_total < min_sc:
+                cnt['score'] += 1; continue
+            
+            # 2do trade del día = risk reducido
             is_second_trade = len(today_trades) >= 1
             if is_second_trade:
                 risk_mult = risk_mult * SECOND_TRADE_RISK_MULT
             
-            # Aplicar risk del par
-            risk_mult = risk_mult * (risk_pct_pair / 1.0)  # Normalizar al risk del par
+            # Niveles SL/TP del pipeline
+            levels = ict.get('levels')
+            if not levels:
+                cnt['no_levels'] += 1; continue
             
-            buf = atr_p * pair_cfg['pip_value'] * 0.20
-            if action == 'SELL':
-                sl = sweep.get('sweep_high', sweep['level']) + buf
-                sl_dist = abs(sl - c_price)
-                tp1 = c_price - sl_dist * 1.5
-                tp2 = tl if tl > 0 else c_price - sl_dist * 2.5
-            else:
-                sl = sweep.get('sweep_low', sweep['level']) - buf
-                sl_dist = abs(c_price - sl)
-                tp1 = c_price + sl_dist * 1.5
-                tp2 = tl if tl > 0 else c_price + sl_dist * 2.5
+            sl = levels.get('sl', 0)
+            tp1 = levels.get('tp1', 0)
+            tp2 = levels.get('tp2', 0)
             
-            if sl_dist <= 0 or sl_dist > c_price * 0.012:
-                cnt['sl_dist'] += 1; continue
+            if sl <= 0 or tp1 <= 0:
+                cnt['no_levels'] += 1; continue
             
-            sim = simulate_trade(h1, i, action, sl, tp1, tp2, balance, atr_p * pair_cfg['pip_value'],
+            # ATR para simulación
+            atr = ict.get('atr', 0.0008)
+            
+            # Simular trade con risk_multiplier
+            sim = simulate_trade(h1, i, action, sl, tp1, tp2, balance, atr,
                                  risk_multiplier=risk_mult)
             if not sim: continue
             
+            # Registrar trade del día
             day_trades.setdefault(c_day, []).append({
                 'idx': i, 'killzone': kill, 'hour': c_h,
                 'is_second': is_second_trade
             })
             last_idx = i
             
-            # Análisis CEO (mantenido)
-            analysis, rec, fail_factors = '', '', []
+            # Datos para reporte
+            sweep = ict.get('sweep', {})
+            htf_b = ict.get('htf_bias', '')
+            htf_s = ict.get('htf_strength', 0)
+            adr_pct = ict.get('adr_pct', 0)
+            atr_p = ict.get('atr_pips', 0)
             
             all_trades.append({
                 'pair': display,
@@ -2736,42 +2770,42 @@ async def run_backtesting_pair(pair):
                 'killzone': kill,
                 'action': action,
                 'entry_price': round(c_price, 5),
-                'fill_price': round(sim['fill_price'], 5),
+                'fill_price': round(sim.get('fill_price', c_price), 5),
                 'sl': round(sl, 5), 'tp1': round(tp1, 5), 'tp2': round(tp2, 5),
-                'rr_tp1': round(sim['rr_tp1'], 2), 'rr_tp2_real': round(sim['rr_tp2_real'], 2),
-                'outcome': sim['outcome'], 'result': sim['result'],
-                'confidence': score['confidence'], 'score': round(score['total'], 1),
-                'sweep_level': round(sweep['level'], 5),
+                'rr_tp1': round(sim.get('rr_tp1', 0), 2),
+                'rr_tp2_real': round(sim.get('rr_tp2_real', 0), 2),
+                'outcome': sim.get('outcome', ''),
+                'result': sim.get('result', 0),
+                'confidence': score.get('confidence', 0),
+                'score': round(score_total, 1),
+                'sweep_level': round(sweep.get('level', 0), 5),
                 'sweep_type': sweep.get('level_type', ''),
                 'sweep_quality': sweep.get('quality', ''),
-                'wick_pct': round(sweep.get('wick_pct', 0), 2),
-                'htf_bias': htf_b, 'htf_strength': round(htf_s, 2),
-                'bos_quality': bos_data[1], 'displacement_strength': ds,
-                'inducement_quality': ind[1],
-                'liq_obj_level': round(tl,5) if tl else 0, 'liq_obj_type': tt,
-                'adr_pct': round(adr_pct,2), 'atr_pips': round(atr_p,1),
-                'velas_duration': sim['velas_duration'],
-                'sl_moved_be': sim['sl_moved_be'], 'be_vela': sim['be_vela'],
-                'be_reason': sim.get('be_reason',''),
-                'partial_closed': sim['partial_closed'],
-                'pnl_parcial': sim['pnl_parcial'],
-                'tp1_vela': sim['tp1_vela'], 'gestion': sim['gestion'],
+                'htf_bias': htf_b,
+                'htf_strength': round(htf_s, 2),
+                'displacement_strength': ict.get('displacement', {}).get('strength', 'none'),
+                'inducement_quality': ict.get('inducement', {}).get('quality', 'none'),
+                'adr_pct': round(adr_pct, 2),
+                'atr_pips': round(atr_p, 1),
+                'velas_duration': sim.get('velas_duration', 0),
+                'sl_moved_be': sim.get('sl_moved_be', False),
+                'partial_closed': sim.get('partial_closed', False),
+                'pnl_parcial': sim.get('pnl_parcial', 0),
+                'tp1_vela': sim.get('tp1_vela', 0),
+                'gestion': sim.get('gestion', ''),
                 'news_blocked': nb,
-                'score_factors': ' | '.join(f"{k}:{v['pts']:.0f}" for k, v in score['factors'].items()),
-                'confirmaciones': f"Sweep {sweep.get('quality','')} | HTF {htf_b} | BOS {bos_data[1]}",
-                'ceo_analysis': analysis, 'ceo_recommendation': rec,
-                'failure_factors': ', '.join(fail_factors) if fail_factors else 'N/A',
                 'caution_mode': is_caution,
                 'risk_multiplier': risk_mult,
                 'day_of_week': cdt.strftime('%A') if cdt else 'Unknown',
                 'is_second_trade': is_second_trade,
                 'killzone_type': kill,
+                'regime_type': ict.get('regime', {}).get('type', 'unknown'),
             })
         
-        log.info(f'[BT][{display}] {len(all_trades)} trades')
-        log.info(f'[BT][{display}][CAUTION] Vetos: score={cnt.get("caution_score",0)} '
-                 f'htf={cnt.get("caution_htf",0)} sweep={cnt.get("caution_sweep",0)} '
-                 f'disp={cnt.get("caution_disp",0)} ind={cnt.get("caution_ind",0)}')
+        log.info(f'[BT][{display}] {len(all_trades)} trades generados')
+        log.info(f'[BT][{display}] Vetos caution: score={cnt.get("caution_score",0)} '
+                 f'htf={cnt.get("caution_htf",0)} regime={cnt.get("caution_regime",0)} '
+                 f'anomaly={cnt.get("caution_anomaly",0)}')
         
     except Exception as e:
         log.error(f'[BT][{display}] Error: {e}', exc_info=True)
@@ -2796,15 +2830,16 @@ async def run_backtesting_pair(pair):
         
         pair_summary = {
             'pair': display, 'pair_id': pair,
-            'total_trades': len(all_trades), 'wins': len(wins),
-            'losses': len(all_trades) - len(wins) - len(bes), 'breakeven': len(bes),
-            'win_rate': round(wr, 4), 'total_pnl': round(pnl, 2),
-            'profit_factor': pf, 'max_drawdown': round(max_dd*100, 2),
+            'total_trades': len(all_trades),
+            'wins': len(wins),
+            'losses': len(all_trades) - len(wins) - len(bes),
+            'breakeven': len(bes),
+            'win_rate': round(wr, 4),
+            'total_pnl': round(pnl, 2),
+            'profit_factor': pf,
+            'max_drawdown': round(max_dd*100, 2),
             'trades_per_week': round(len(all_trades)/52, 1),
             'caution_day_trades': len([t for t in all_trades if t.get('caution_mode')]),
-            'caution_day_vetos': sum([cnt.get('caution_score',0), cnt.get('caution_htf',0),
-                                       cnt.get('caution_sweep',0), cnt.get('caution_disp',0),
-                                       cnt.get('caution_ind',0)]),
         }
     
     return {'trades': all_trades, 'summary': pair_summary}
