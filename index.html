@@ -1,0 +1,2252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TPDCM-IA · Portfolio Multi-Par v2.6</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+/* ============================================================
+   SISTEMA DE TEMAS — 4 modos
+   ============================================================ */
+
+/* TEMA 1: DARK (institucional - default) */
+:root,
+:root[data-theme="dark"] {
+  --bg: #070a0d;
+  --bg1: #0c1017;
+  --bg2: #111820;
+  --bg3: #1a2430;
+  --b: rgba(255,255,255,0.07);
+  --b2: rgba(255,255,255,0.12);
+  --t: #c4d8cc;
+  --t2: #5a7a68;
+  --t3: #3a5a48;
+  --g: #00e87a;
+  --g2: #00c96a;
+  --r: #ff3355;
+  --gold: #f0c040;
+  --blue: #4a9eff;
+  --purple: #b066ff;
+  --orange: #ff8c42;
+  --shadow: rgba(0,0,0,0.4);
+}
+
+/* TEMA 2: PROTECCIÓN DE VISTA (sepia/marrón cálido, baja fatiga) */
+:root[data-theme="sepia"] {
+  --bg: #1c1611;
+  --bg1: #261e15;
+  --bg2: #30261b;
+  --bg3: #3c3022;
+  --b: rgba(240,200,150,0.08);
+  --b2: rgba(240,200,150,0.15);
+  --t: #e8d5a8;
+  --t2: #b09870;
+  --t3: #807050;
+  --g: #d4a040;
+  --g2: #b8862e;
+  --r: #d97050;
+  --gold: #e8b860;
+  --blue: #a89060;
+  --purple: #c89570;
+  --orange: #e8a060;
+  --shadow: rgba(40,20,0,0.5);
+}
+
+/* TEMA 3: DARK FEMENINE (rosa/violeta sobre negro elegante) */
+:root[data-theme="dark-fem"] {
+  --bg: #0e0612;
+  --bg1: #1a0c20;
+  --bg2: #251530;
+  --bg3: #32203e;
+  --b: rgba(255,180,220,0.10);
+  --b2: rgba(255,180,220,0.18);
+  --t: #f0d4e8;
+  --t2: #a47a98;
+  --t3: #7a5a70;
+  --g: #ff6bb5;
+  --g2: #e84a9a;
+  --r: #ff5588;
+  --gold: #ffb6d9;
+  --blue: #c8a4ff;
+  --purple: #d870ff;
+  --orange: #ff9ec0;
+  --shadow: rgba(80,0,40,0.5);
+}
+
+/* TEMA 4: LIGHT FEMENINE (rosa pastel sobre blanco/lavanda) */
+:root[data-theme="light-fem"] {
+  --bg: #fdf6fa;
+  --bg1: #ffffff;
+  --bg2: #faf0f6;
+  --bg3: #f0e0eb;
+  --b: rgba(180,100,150,0.12);
+  --b2: rgba(180,100,150,0.22);
+  --t: #5a3050;
+  --t2: #9070a0;
+  --t3: #b090c0;
+  --g: #e040a0;
+  --g2: #c8308a;
+  --r: #d83370;
+  --gold: #d89030;
+  --blue: #9070d8;
+  --purple: #b840d8;
+  --orange: #e87090;
+  --shadow: rgba(180,100,150,0.15);
+}
+
+/* TEMA 5: LIGHT INSTITUCIONAL (modo claro profesional neutro) */
+:root[data-theme="light"] {
+  --bg: #f5f7fa;
+  --bg1: #ffffff;
+  --bg2: #f0f3f7;
+  --bg3: #e3e9f0;
+  --b: rgba(20,40,60,0.10);
+  --b2: rgba(20,40,60,0.18);
+  --t: #1a2530;
+  --t2: #5a6878;
+  --t3: #8a98a8;
+  --g: #00a854;
+  --g2: #008844;
+  --r: #d63242;
+  --gold: #c89020;
+  --blue: #2a78d8;
+  --purple: #7848c8;
+  --orange: #e07020;
+  --shadow: rgba(20,40,60,0.12);
+}
+
+/* ============================================================
+   RESET + BASE
+   ============================================================ */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--t);
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 100vh;
+  padding: 16px;
+  transition: background 0.3s, color 0.3s;
+}
+.app { max-width: 1600px; margin: 0 auto; }
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.top {
+  background: var(--bg1);
+  border: 1px solid var(--b);
+  border-radius: 6px;
+  padding: 14px 20px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  transition: all 0.3s;
+}
+.brand {
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 700;
+  color: var(--g);
+  font-size: 16px;
+  letter-spacing: 0.08em;
+}
+.brand small {
+  color: var(--t2);
+  font-weight: 400;
+  font-size: 10px;
+  margin-left: 8px;
+  letter-spacing: 0.05em;
+}
+
+/* ============================================================
+   THEME SWITCHER
+   ============================================================ */
+.theme-switcher {
+  display: flex;
+  gap: 6px;
+  background: var(--bg2);
+  padding: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--b);
+}
+.theme-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  transition: all 0.2s;
+  background: var(--bg3);
+}
+.theme-btn:hover {
+  transform: scale(1.08);
+}
+.theme-btn.active {
+  border-color: var(--g);
+  box-shadow: 0 0 12px rgba(0,232,122,0.3);
+}
+/* Visual indicator de cada tema en el botón */
+.theme-btn[data-theme="dark"] {
+  background: linear-gradient(135deg, #070a0d 0%, #00e87a 100%);
+}
+.theme-btn[data-theme="sepia"] {
+  background: linear-gradient(135deg, #1c1611 0%, #d4a040 100%);
+}
+.theme-btn[data-theme="dark-fem"] {
+  background: linear-gradient(135deg, #0e0612 0%, #ff6bb5 100%);
+}
+.theme-btn[data-theme="light-fem"] {
+  background: linear-gradient(135deg, #fdf6fa 0%, #e040a0 100%);
+}
+.theme-btn[data-theme="light"] {
+  background: linear-gradient(135deg, #f5f7fa 0%, #2a78d8 100%);
+  border: 1px solid rgba(20,40,60,0.2);
+}
+
+.status-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pill-g {
+  background: color-mix(in srgb, var(--g) 15%, transparent);
+  color: var(--g);
+  border: 1px solid color-mix(in srgb, var(--g) 30%, transparent);
+}
+.pill-r {
+  background: color-mix(in srgb, var(--r) 15%, transparent);
+  color: var(--r);
+  border: 1px solid color-mix(in srgb, var(--r) 30%, transparent);
+}
+.pill-gold {
+  background: color-mix(in srgb, var(--gold) 15%, transparent);
+  color: var(--gold);
+  border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
+}
+.pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+}
+
+.top-info {
+  margin-left: auto;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+.metric { text-align: right; }
+.metric .lbl {
+  font-size: 9px;
+  color: var(--t2);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.metric .val {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t);
+}
+.metric .val.g { color: var(--g); }
+
+/* ============================================================
+   TABS
+   ============================================================ */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  background: var(--bg1);
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--b);
+}
+.tab {
+  padding: 8px 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--t2);
+  transition: all 0.15s;
+  border: none;
+  background: none;
+}
+.tab:hover { color: var(--t); background: var(--bg2); }
+.tab.active { background: var(--bg3); color: var(--g); }
+
+/* ============================================================
+   GRID + CARDS
+   ============================================================ */
+.grid { display: grid; gap: 12px; }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) {
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  .top-info { width: 100%; justify-content: space-between; }
+}
+
+.card {
+  background: var(--bg1);
+  border: 1px solid var(--b);
+  border-radius: 6px;
+  padding: 14px 16px;
+  transition: all 0.3s;
+}
+.card.featured {
+  background: linear-gradient(135deg, var(--bg1) 0%, var(--bg2) 100%);
+  border-color: color-mix(in srgb, var(--g) 25%, transparent);
+}
+.card-label {
+  font-size: 9px;
+  color: var(--t2);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* DECISION */
+.decision-big {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.decision-big .act {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.decision-big .conf {
+  font-size: 14px;
+  color: var(--t2);
+}
+.decision-big .conf strong { color: var(--t); font-weight: 600; }
+.decision-source {
+  font-size: 10px;
+  color: var(--t2);
+  font-style: italic;
+  margin-bottom: 6px;
+}
+
+/* KEY-VALUE */
+.kv {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--b);
+  font-size: 12px;
+}
+.kv:last-child { border-bottom: none; }
+.kv .k { color: var(--t2); }
+.kv .v {
+  color: var(--t);
+  font-weight: 600;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.kv .v.g { color: var(--g); }
+.kv .v.r { color: var(--r); }
+.kv .v.gold { color: var(--gold); }
+.kv .v.b { color: var(--blue); }
+.kv .v.p { color: var(--purple); }
+
+/* NARRATIVE */
+.narrative {
+  margin-top: 10px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg3) 50%, transparent);
+  border-radius: 4px;
+  border-left: 3px solid var(--g);
+  font-style: italic;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--t);
+  font-family: 'IBM Plex Mono', monospace;
+}
+.narrative.vetoed {
+  border-left-color: var(--gold);
+}
+.narrative.empty {
+  color: var(--t3);
+  font-style: normal;
+}
+
+/* REGIME BADGE */
+.regime-badge {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.regime-trending {
+  background: color-mix(in srgb, var(--g) 15%, transparent);
+  color: var(--g);
+}
+.regime-expansion {
+  background: color-mix(in srgb, var(--blue) 15%, transparent);
+  color: var(--blue);
+}
+.regime-ranging {
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
+  color: var(--gold);
+}
+.regime-compression {
+  background: color-mix(in srgb, var(--purple) 15%, transparent);
+  color: var(--purple);
+}
+.regime-choppy {
+  background: color-mix(in srgb, var(--r) 15%, transparent);
+  color: var(--r);
+}
+.regime-unknown {
+  background: var(--bg3);
+  color: var(--t2);
+}
+
+/* ANOMALIES */
+.anomaly-tag {
+  display: inline-block;
+  padding: 3px 8px;
+  margin: 2px 4px 2px 0;
+  font-size: 10px;
+  border-radius: 3px;
+  font-family: 'IBM Plex Mono', monospace;
+  letter-spacing: 0.05em;
+}
+.anomaly-low {
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  color: var(--blue);
+}
+.anomaly-medium {
+  background: color-mix(in srgb, var(--gold) 15%, transparent);
+  color: var(--gold);
+}
+.anomaly-high {
+  background: color-mix(in srgb, var(--r) 15%, transparent);
+  color: var(--r);
+}
+
+/* PROGRESS BARS */
+.bar {
+  height: 6px;
+  background: var(--bg3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.bar-fill {
+  height: 100%;
+  transition: width 0.4s;
+}
+.bar-g { background: linear-gradient(90deg, var(--g2), var(--g)); }
+.bar-r { background: linear-gradient(90deg, color-mix(in srgb, var(--r) 70%, black), var(--r)); }
+.bar-gold { background: linear-gradient(90deg, color-mix(in srgb, var(--gold) 70%, black), var(--gold)); }
+.bar-b { background: linear-gradient(90deg, color-mix(in srgb, var(--blue) 70%, black), var(--blue)); }
+
+/* TABLES */
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.tbl th {
+  text-align: left;
+  padding: 8px 10px;
+  font-weight: 600;
+  color: var(--t2);
+  border-bottom: 1px solid var(--b2);
+  font-family: 'IBM Plex Mono', monospace;
+  letter-spacing: 0.05em;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+.tbl td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--b);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+}
+.tbl tr:hover td { background: var(--bg2); }
+.tbl .col-action.BUY { color: var(--g); font-weight: 700; }
+.tbl .col-action.SELL { color: var(--r); font-weight: 700; }
+.tbl .col-action.HOLD { color: var(--gold); }
+.tbl .col-pnl.pos { color: var(--g); }
+.tbl .col-pnl.neg { color: var(--r); }
+
+/* BUTTONS */
+.btn {
+  background: var(--bg3);
+  border: 1px solid var(--b2);
+  color: var(--t);
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.btn:hover {
+  background: var(--bg2);
+  border-color: var(--g);
+  color: var(--g);
+}
+.btn-g {
+  background: color-mix(in srgb, var(--g) 12%, transparent);
+  color: var(--g);
+  border-color: color-mix(in srgb, var(--g) 30%, transparent);
+}
+.btn-g:hover {
+  background: color-mix(in srgb, var(--g) 20%, transparent);
+}
+
+/* EMPTY / LOADING */
+.empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--t3);
+  font-style: italic;
+  font-size: 12px;
+}
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--bg3);
+  border-top-color: var(--g);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.sec-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.sec-title {
+  font-size: 11px;
+  color: var(--t2);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.factor-row {
+  display: grid;
+  grid-template-columns: 130px 60px 1fr 60px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 10px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.factor-row .name { color: var(--t2); }
+.factor-row .pts { color: var(--gold); font-weight: 600; }
+.factor-row .tag { color: var(--t); font-size: 9px; }
+
+.hidden { display: none !important; }
+
+/* Toast feedback al cambiar tema */
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: var(--bg3);
+  border: 1px solid var(--g);
+  color: var(--g);
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  z-index: 1000;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: all 0.3s;
+  box-shadow: 0 4px 20px var(--shadow);
+}
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- HEADER -->
+  <div class="top">
+    <div class="brand">TPDCM-IA<small id="brand-subtitle">PORTFOLIO MULTI-PAR · v2.6</small></div>
+
+    <!-- PAIR SELECTOR (v2.6) -->
+    <select id="pair-selector" title="Seleccionar par" style="background:var(--card);color:var(--green);border:1px solid var(--green);border-radius:4px;padding:5px 10px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0.05em;margin-right:8px">
+      <option value="ALL">🌐 TODOS</option>
+      <option value="EUR_USD">EUR/USD</option>
+      <option value="GBP_USD">GBP/USD</option>
+    </select>
+
+    <!-- THEME SWITCHER -->
+    <div class="theme-switcher" title="Cambiar tema">
+      <button class="theme-btn active" data-theme="dark" title="Dark Institucional"></button>
+      <button class="theme-btn" data-theme="light" title="Light Institucional"></button>
+      <button class="theme-btn" data-theme="sepia" title="Protección de Vista"></button>
+      <button class="theme-btn" data-theme="dark-fem" title="Dark Femenine"></button>
+      <button class="theme-btn" data-theme="light-fem" title="Light Femenine"></button>
+    </div>
+
+    <div class="status-pills">
+      <span class="pill pill-g" id="pill-server"><span class="pill-dot"></span>SERVER</span>
+      <span class="pill pill-g" id="pill-auto"><span class="pill-dot"></span>AUTO-EXEC</span>
+      <span class="pill pill-g" id="pill-cog"><span class="pill-dot"></span>COGNITIVE</span>
+      <span class="pill pill-g" id="pill-notify"><span class="pill-dot"></span>NOTIFY</span>
+    </div>
+    <div class="top-info">
+      <div class="metric"><div class="lbl">Balance</div><div class="val g" id="hdr-balance">--</div></div>
+      <div class="metric"><div class="lbl">Edge</div><div class="val" id="hdr-edge">--</div></div>
+      <div class="metric"><div class="lbl">Updated</div><div class="val" id="hdr-time" style="font-size:11px">--</div></div>
+      <button class="btn btn-g" onclick="refreshAll()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" data-tab="dashboard">DASHBOARD</button>
+    <button class="tab" data-tab="ict">ICT ANALYSIS</button>
+    <button class="tab" data-tab="regime">RÉGIMEN &amp; COGNITIVE</button>
+    <button class="tab" data-tab="claude-chat">🧠 ANÁLISIS CLAUDE</button>
+    <button class="tab" data-tab="trades">OPERACIONES</button>
+    <button class="tab" data-tab="memory">MEMORIA</button>
+    <button class="tab" data-tab="backtest">BACKTESTING</button>
+  </div>
+
+  <!-- ==================== TAB: DASHBOARD ==================== -->
+  <div class="tab-content" id="tab-dashboard">
+
+    <div class="grid grid-2" style="margin-bottom:12px">
+      <div class="card featured">
+        <div class="card-label">⚡ DECISIÓN FINAL</div>
+        <div class="decision-big">
+          <span class="act" id="dec-action">--</span>
+          <span class="conf">Confianza: <strong id="dec-conf">--%</strong></span>
+          <span class="conf">Score: <strong id="dec-score">--/100</strong></span>
+        </div>
+        <div class="decision-source" id="dec-source">Esperando datos...</div>
+        <div class="kv"><span class="k">Killzone</span><span class="v gold" id="dec-kz">--</span></div>
+        <div class="kv"><span class="k">HTF Bias</span><span class="v" id="dec-htf">--</span></div>
+        <div class="kv"><span class="k">Cognitive Veto</span><span class="v" id="dec-veto">--</span></div>
+        <div class="kv"><span class="k">Confidence Multiplier</span><span class="v" id="dec-mult">--</span></div>
+        <div class="narrative empty" id="dec-narrative">Esperando análisis...</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">📊 RÉGIMEN DE MERCADO (FASE 2)</div>
+        <div style="margin: 8px 0 12px 0">
+          <span class="regime-badge regime-unknown" id="reg-badge">UNKNOWN</span>
+          <span style="margin-left:10px; font-size:11px; color:var(--t2)" id="reg-quality">--</span>
+        </div>
+        <div class="kv"><span class="k">Volatilidad (Z-score)</span><span class="v" id="reg-vol">--</span></div>
+        <div class="kv"><span class="k">Direccionalidad</span><span class="v" id="reg-trend">--</span></div>
+        <div class="bar"><div class="bar-fill bar-g" id="reg-trend-bar" style="width:0%"></div></div>
+        <div class="kv" style="margin-top:8px"><span class="k">Momentum consistency</span><span class="v" id="reg-momentum">--</span></div>
+        <div class="kv"><span class="k">Chop penalty</span><span class="v" id="reg-chop">--</span></div>
+        <div style="margin-top:12px">
+          <div class="card-label" style="margin-bottom:4px">ANOMALÍAS DETECTADAS</div>
+          <div id="reg-anomalies"><span class="anomaly-tag anomaly-low">cargando...</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-3" style="margin-bottom:12px">
+      <div class="card">
+        <div class="card-label">🎯 SETUP TÉCNICO</div>
+        <div class="kv"><span class="k">Sweep</span><span class="v" id="ict-sweep-det">--</span></div>
+        <div class="kv"><span class="k">Nivel sweep</span><span class="v gold" id="ict-sweep-lvl">--</span></div>
+        <div class="kv"><span class="k">Quality / Tipo</span><span class="v" id="ict-sweep-q">--</span></div>
+        <div class="kv"><span class="k">Mecha %</span><span class="v" id="ict-sweep-wick">--</span></div>
+        <div class="kv"><span class="k">BOS</span><span class="v" id="ict-bos">--</span></div>
+        <div class="kv"><span class="k">Displacement</span><span class="v" id="ict-disp">--</span></div>
+        <div class="kv"><span class="k">Inducement</span><span class="v" id="ict-ind">--</span></div>
+        <div class="kv"><span class="k">FVG / OB</span><span class="v" id="ict-fvgob">--</span></div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">📈 CONTEXTO DE MERCADO</div>
+        <div class="kv"><span class="k">Precio actual</span><span class="v b" id="ict-price">--</span></div>
+        <div class="kv"><span class="k">ATR H1</span><span class="v" id="ict-atr">--</span></div>
+        <div class="kv"><span class="k">ADR restante</span><span class="v" id="ict-adr">--</span></div>
+        <div class="bar"><div class="bar-fill bar-gold" id="ict-adr-bar" style="width:50%"></div></div>
+        <div class="kv" style="margin-top:8px"><span class="k">HTF Strength</span><span class="v" id="ict-htf-str">--</span></div>
+        <div class="bar"><div class="bar-fill bar-b" id="ict-htf-bar" style="width:0%"></div></div>
+        <div class="kv" style="margin-top:8px"><span class="k">Target liquidez</span><span class="v gold" id="ict-target">--</span></div>
+        <div class="kv"><span class="k">RR a target</span><span class="v" id="ict-target-rr">--</span></div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">⚙️ NIVELES OPERATIVOS</div>
+        <div class="kv"><span class="k">Entry</span><span class="v b" id="lvl-entry">--</span></div>
+        <div class="kv"><span class="k">Stop Loss</span><span class="v r" id="lvl-sl">--</span></div>
+        <div class="kv"><span class="k">Take Profit 1</span><span class="v g" id="lvl-tp1">--</span></div>
+        <div class="kv"><span class="k">Take Profit 2</span><span class="v g" id="lvl-tp2">--</span></div>
+        <div class="kv"><span class="k">RR TP1 / TP2</span><span class="v" id="lvl-rr">--</span></div>
+        <div class="kv"><span class="k">Position size</span><span class="v" id="lvl-pos">--</span></div>
+        <div class="kv"><span class="k">Risk %</span><span class="v" id="lvl-risk">--</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec-header">
+        <div class="sec-title">📋 Últimas 20 Decisiones Automáticas</div>
+        <div style="font-size:10px;color:var(--t2)" id="hist-count">--</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Hora ET</th><th>Killzone</th><th>Acción</th><th>Score</th>
+            <th>Confianza</th><th>HTF</th><th>Razón / Fuente</th>
+          </tr></thead>
+          <tbody id="hist-rows"><tr><td colspan="7" class="empty">Cargando historial...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: ICT ANALYSIS ==================== -->
+  <div class="tab-content hidden" id="tab-ict">
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-label">🎯 SCORE 100 PUNTOS — DESGLOSE POR FACTOR</div>
+      <div style="margin-bottom:12px; display:flex; align-items:baseline; gap:14px">
+        <span style="font-family:'IBM Plex Mono'; font-size:28px; font-weight:700; color:var(--gold)" id="ict-score-total">--/100</span>
+        <span style="color:var(--t2); font-size:11px" id="ict-score-exec">--</span>
+      </div>
+      <div id="ict-factors"><div class="empty">Cargando factores...</div></div>
+    </div>
+
+    <div class="grid grid-2" style="margin-bottom:12px">
+      <div class="card">
+        <div class="card-label">📋 CHECKLIST DETECCIÓN ICT</div>
+        <div class="kv"><span class="k">1. HTF Bias detectado</span><span class="v" id="chk-htf">--</span></div>
+        <div class="kv"><span class="k">2. Liquidity levels</span><span class="v" id="chk-liq">--</span></div>
+        <div class="kv"><span class="k">3. Inducement detectado</span><span class="v" id="chk-ind">--</span></div>
+        <div class="kv"><span class="k">4. Sweep institucional</span><span class="v" id="chk-sweep">--</span></div>
+        <div class="kv"><span class="k">5. Displacement</span><span class="v" id="chk-disp">--</span></div>
+        <div class="kv"><span class="k">6. BOS</span><span class="v" id="chk-bos">--</span></div>
+        <div class="kv"><span class="k">7. FVG/OB</span><span class="v" id="chk-fvgob">--</span></div>
+        <div class="kv"><span class="k">8. Target liquidez</span><span class="v" id="chk-target">--</span></div>
+        <div class="kv"><span class="k">9. Killzone + ADR + ATR</span><span class="v" id="chk-session">--</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">💡 RAZONES DEL SCORE</div>
+        <div id="ict-reasons" style="font-family:'IBM Plex Mono'; font-size:11px; line-height:1.8; color:var(--t)"><div class="empty">--</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">🎯 ZONA DE ENTRADA (FVG/OB)</div>
+      <div class="grid grid-3">
+        <div class="kv"><span class="k">Entry zone HIGH</span><span class="v b" id="entry-high">--</span></div>
+        <div class="kv"><span class="k">Entry zone LOW</span><span class="v b" id="entry-low">--</span></div>
+        <div class="kv"><span class="k">Tipo zona</span><span class="v" id="entry-type">--</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: RÉGIMEN & COGNITIVE ==================== -->
+  <div class="tab-content hidden" id="tab-regime">
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-label">🧠 VALIDACIÓN COGNITIVA (CLAUDE LAYER)</div>
+      <div class="grid grid-4" style="margin-bottom:12px">
+        <div>
+          <div class="card-label">VETO</div>
+          <div style="font-family:'IBM Plex Mono'; font-size:20px; font-weight:700" id="cog-veto-big">--</div>
+        </div>
+        <div>
+          <div class="card-label">MULTIPLIER</div>
+          <div style="font-family:'IBM Plex Mono'; font-size:20px; font-weight:700; color:var(--gold)" id="cog-mult-big">--</div>
+        </div>
+        <div>
+          <div class="card-label">NARRATIVA</div>
+          <div style="font-family:'IBM Plex Mono'; font-size:20px; font-weight:700" id="cog-quality-big">--</div>
+        </div>
+        <div>
+          <div class="card-label">ESTADO</div>
+          <div style="font-family:'IBM Plex Mono'; font-size:20px; font-weight:700" id="cog-status-big">--</div>
+        </div>
+      </div>
+      <div class="card-label" style="margin-top:14px">📝 NARRATIVA DE CLAUDE</div>
+      <div class="narrative empty" id="cog-narrative">Esperando setup válido para validación cognitiva...</div>
+      <div class="card-label" style="margin-top:14px">🎯 REGIME ASSESSMENT</div>
+      <div style="font-size:11px; color:var(--t); padding:8px; background:var(--bg3); border-radius:4px; font-family:'IBM Plex Mono'" id="cog-regime-assess">--</div>
+      <div class="card-label" style="margin-top:14px">⚠️ ANOMALÍAS INTERPRETADAS POR CLAUDE</div>
+      <div id="cog-anomalies"><span class="anomaly-tag anomaly-low">Ninguna detectada</span></div>
+    </div>
+
+    <div class="grid grid-2" style="margin-bottom:12px">
+      <div class="card">
+        <div class="card-label">📊 RÉGIMEN DETALLADO</div>
+        <div style="margin:8px 0 14px 0">
+          <span class="regime-badge regime-unknown" id="reg2-badge" style="font-size:14px; padding:8px 16px">UNKNOWN</span>
+        </div>
+        <div class="kv"><span class="k">Tipo de régimen</span><span class="v" id="reg2-type">--</span></div>
+        <div class="kv"><span class="k">Calidad del régimen</span><span class="v" id="reg2-quality">--</span></div>
+        <div class="kv"><span class="k">Volatility Z-score</span><span class="v" id="reg2-vol">--</span></div>
+        <div class="kv"><span class="k">Trending score</span><span class="v" id="reg2-trend">--</span></div>
+        <div class="bar"><div class="bar-fill bar-g" id="reg2-trend-bar" style="width:0%"></div></div>
+        <div class="kv" style="margin-top:8px"><span class="k">Momentum consistency</span><span class="v" id="reg2-mom">--</span></div>
+        <div class="bar"><div class="bar-fill bar-b" id="reg2-mom-bar" style="width:0%"></div></div>
+        <div class="kv" style="margin-top:8px"><span class="k">Chop penalty</span><span class="v" id="reg2-chop">--</span></div>
+        <div class="bar"><div class="bar-fill bar-r" id="reg2-chop-bar" style="width:0%"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">⚠️ ANOMALY FEATURES (PYTHON DETECTA)</div>
+        <div style="margin-bottom:12px">
+          <div class="card-label">SEVERIDAD GLOBAL</div>
+          <div style="font-family:'IBM Plex Mono'; font-size:24px; font-weight:700; margin-top:4px" id="anom-severity">--</div>
+        </div>
+        <div class="kv"><span class="k">Anomaly count</span><span class="v" id="anom-count">--</span></div>
+        <div class="kv"><span class="k">Long wicks consecutivos</span><span class="v" id="anom-wicks">--</span></div>
+        <div class="kv"><span class="k">Mechas alternantes</span><span class="v" id="anom-alt">--</span></div>
+        <div class="kv"><span class="k">Gap post-news</span><span class="v" id="anom-gap">--</span></div>
+        <div class="kv"><span class="k">Sweep sin retest</span><span class="v" id="anom-noret">--</span></div>
+        <div class="kv"><span class="k">Volume dissonance</span><span class="v" id="anom-vol">--</span></div>
+        <div class="kv"><span class="k">Displacement velocity</span><span class="v" id="anom-vel">--</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">📚 GUÍA DE INTERPRETACIÓN</div>
+      <div style="display:grid; grid-template-columns: repeat(2,1fr); gap:14px; font-size:11px; color:var(--t)">
+        <div>
+          <strong style="color:var(--g)">TRENDING:</strong> dirección clara y momentum sostenido → ideal para setups direccionales<br><br>
+          <strong style="color:var(--blue)">EXPANSION:</strong> volatilidad alta saludable → buen entorno para sweeps + displacement<br><br>
+          <strong style="color:var(--gold)">RANGING:</strong> lateral, sin dirección → reducir confidence en setups direccionales
+        </div>
+        <div>
+          <strong style="color:var(--purple)">COMPRESSION:</strong> volatilidad baja → setup de continuación riesgoso<br><br>
+          <strong style="color:var(--r)">CHOPPY:</strong> errático, peligroso → mejor no operar<br><br>
+          <strong style="color:var(--t2)">UNKNOWN:</strong> datos insuficientes para clasificar
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: ANÁLISIS CLAUDE ==================== -->
+  <div class="tab-content hidden" id="tab-claude-chat">
+
+    <!-- ÚLTIMA NARRATIVA DESTACADA -->
+    <div class="card featured" style="margin-bottom:12px">
+      <div class="card-label">🧠 ÚLTIMO ANÁLISIS DE CLAUDE</div>
+      <div style="display:flex; gap:14px; align-items:baseline; margin-bottom:8px">
+        <span style="font-family:'IBM Plex Mono'; font-size:11px; color:var(--t2)" id="claude-last-ts">--</span>
+        <span class="regime-badge regime-unknown" id="claude-last-regime" style="font-size:10px">--</span>
+      </div>
+      <div class="narrative empty" id="claude-last-narrative" style="font-size:13px; line-height:1.7; padding:16px">
+        Esperando primer análisis de Claude...
+      </div>
+      <div style="display:flex; gap:14px; margin-top:10px; font-size:11px; color:var(--t2); flex-wrap:wrap">
+        <span>Acción técnica: <strong id="claude-last-action" style="color:var(--t)">--</strong></span>
+        <span>Score: <strong id="claude-last-score" style="color:var(--t)">--</strong></span>
+        <span>Veto: <strong id="claude-last-veto" style="color:var(--t)">--</strong></span>
+        <span>Multiplier: <strong id="claude-last-mult" style="color:var(--gold)">--</strong></span>
+      </div>
+    </div>
+
+    <!-- CONVERSACIÓN LIBRE CON CLAUDE -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-label">💬 PREGUNTALE A CLAUDE</div>
+      <div style="font-size:11px; color:var(--t2); margin-bottom:10px; line-height:1.5">
+        Conversa libremente con Claude sobre el mercado actual. Tiene acceso completo al estado del sistema (precio, régimen, anomalías, decisión actual, balance, edge score). <span style="color:var(--gold)">Aproximadamente $0.02 USD por pregunta.</span>
+      </div>
+
+      <div id="chat-messages" style="background:var(--bg2); border:1px solid var(--b); border-radius:6px; padding:14px; min-height:200px; max-height:500px; overflow-y:auto; margin-bottom:10px; font-family:'IBM Plex Mono'; font-size:12px; line-height:1.6">
+        <div style="color:var(--t3); font-style:italic; text-align:center; padding:40px 20px">
+          Aún no hay conversación. Escribe tu primera pregunta abajo ↓
+        </div>
+      </div>
+
+      <div style="display:flex; gap:8px; align-items:stretch">
+        <textarea id="chat-input" placeholder="Ej: ¿Qué opinas del mercado ahora? ¿Por qué no operamos hoy? ¿Crees que viene un movimiento?" style="flex:1; padding:10px 12px; background:var(--bg3); border:1px solid var(--b2); border-radius:4px; color:var(--t); font-family:'Space Grotesk'; font-size:12px; resize:vertical; min-height:50px"></textarea>
+        <button class="btn btn-g" onclick="sendChatMessage()" style="padding:10px 20px; min-width:90px" id="chat-send-btn">📤 Enviar</button>
+      </div>
+
+      <div style="margin-top:10px; display:flex; gap:6px; flex-wrap:wrap; font-size:10px">
+        <button class="btn" onclick="quickQuestion('¿Qué opinas del mercado ahora mismo?')" style="font-size:10px; padding:4px 8px">💭 Mercado ahora</button>
+        <button class="btn" onclick="quickQuestion('¿Por qué no operamos hoy?')" style="font-size:10px; padding:4px 8px">🤔 ¿Por qué HOLD?</button>
+        <button class="btn" onclick="quickQuestion('¿Cuál es el setup ideal para mañana?')" style="font-size:10px; padding:4px 8px">📅 Setup mañana</button>
+        <button class="btn" onclick="quickQuestion('Resume las últimas 24h de mercado en EUR/USD')" style="font-size:10px; padding:4px 8px">📊 Resumen 24h</button>
+        <button class="btn" onclick="quickQuestion('¿Hay alguna anomalía o riesgo que deba conocer?')" style="font-size:10px; padding:4px 8px">⚠️ Riesgos</button>
+        <button class="btn" onclick="clearChat()" style="font-size:10px; padding:4px 8px; color:var(--r)">🗑️ Limpiar</button>
+      </div>
+    </div>
+
+    <!-- HISTORIAL DE NARRATIVAS -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="sec-header">
+        <div class="sec-title">📋 HISTORIAL DE NARRATIVAS DE CLAUDE (últimos 30 análisis)</div>
+        <button class="btn" onclick="loadClaudeHistory()" style="font-size:10px">↻ Refrescar</button>
+      </div>
+      <div id="claude-narrative-history" style="max-height:400px; overflow-y:auto">
+        <div class="empty">Cargando historial de análisis...</div>
+      </div>
+    </div>
+
+    <!-- TENDENCIAS DETECTADAS -->
+    <div class="grid grid-2">
+      <div class="card">
+        <div class="card-label">📊 TENDENCIAS DE LOS ÚLTIMOS 7 DÍAS</div>
+        <div id="trends-summary">
+          <div class="empty">Cargando tendencias...</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">🎯 PATRONES DE COMPORTAMIENTO</div>
+        <div id="patterns-summary">
+          <div class="empty">Cargando patrones...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: OPERACIONES ==================== -->
+  <div class="tab-content hidden" id="tab-trades">
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-label">💼 TRADES ABIERTOS EN OANDA DEMO</div>
+      <div id="open-trades"><div class="empty">No hay trades abiertos</div></div>
+    </div>
+
+    <div class="card">
+      <div class="sec-header">
+        <div class="sec-title">📋 HISTORIAL DE TRADES EJECUTADOS</div>
+        <div style="font-size:10px;color:var(--t2)" id="trades-count">--</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Fecha</th><th>Hora</th><th>Acción</th><th>Entry</th>
+            <th>Outcome</th><th>P&amp;L</th><th>Killzone</th><th>Score</th><th>Razón</th>
+          </tr></thead>
+          <tbody id="trades-rows"><tr><td colspan="9" class="empty">No hay trades ejecutados todavía</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-label">💼 TRADES ABIERTOS EN OANDA DEMO</div>
+      <div id="open-trades"><div class="empty">No hay trades abiertos</div></div>
+    </div>
+
+    <div class="card">
+      <div class="sec-header">
+        <div class="sec-title">📋 HISTORIAL DE TRADES EJECUTADOS</div>
+        <div style="font-size:10px;color:var(--t2)" id="trades-count">--</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Fecha</th><th>Hora</th><th>Acción</th><th>Entry</th>
+            <th>Outcome</th><th>P&amp;L</th><th>Killzone</th><th>Score</th><th>Razón</th>
+          </tr></thead>
+          <tbody id="trades-rows"><tr><td colspan="9" class="empty">No hay trades ejecutados todavía</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: MEMORIA ==================== -->
+  <div class="tab-content hidden" id="tab-memory">
+
+    <div class="grid grid-3" style="margin-bottom:12px">
+      <div class="card">
+        <div class="card-label">🎯 EDGE SCORE</div>
+        <div style="font-family:'IBM Plex Mono'; font-size:32px; font-weight:700; color:var(--g)" id="mem-edge">--/100</div>
+        <div style="font-size:10px; color:var(--t2); margin-top:6px">Win rate de los últimos 20 trades</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">🛡️ MODO DEFENSIVO</div>
+        <div style="font-family:'IBM Plex Mono'; font-size:24px; font-weight:700" id="mem-defensive">--</div>
+        <div style="font-size:10px; color:var(--t2); margin-top:6px" id="mem-defensive-r">--</div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">⚠️ GESTIÓN DE RIESGO</div>
+        <div class="kv"><span class="k">Pérdidas consec.</span><span class="v" id="risk-cons">--</span></div>
+        <div class="kv"><span class="k">Daily loss USD</span><span class="v" id="risk-daily">--</span></div>
+        <div class="kv"><span class="k">Risk %/trade</span><span class="v" id="risk-pct">--</span></div>
+        <div class="kv"><span class="k">Trading pausado</span><span class="v" id="risk-paused">--</span></div>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-bottom:12px">
+      <div class="card">
+        <div class="card-label">📊 ESTADÍSTICAS POR SESIÓN</div>
+        <div id="session-stats"><div class="empty">Sin datos acumulados todavía</div></div>
+      </div>
+      <div class="card">
+        <div class="card-label">⚖️ PESOS ADAPTATIVOS ACTUALES</div>
+        <div id="weights"><div class="empty">Cargando pesos...</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">🩺 SALUD DEL COGNITIVE LAYER</div>
+      <div class="grid grid-4">
+        <div class="kv"><span class="k">Llamadas última hora</span><span class="v" id="cog-calls">--</span></div>
+        <div class="kv"><span class="k">Fallos última hora</span><span class="v" id="cog-failures">--</span></div>
+        <div class="kv"><span class="k">Tasa de fallo</span><span class="v" id="cog-rate">--</span></div>
+        <div class="kv"><span class="k">Disabled mode</span><span class="v" id="cog-disabled">--</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: BACKTESTING ==================== -->
+  <div class="tab-content hidden" id="tab-backtest">
+
+    <!-- INFO: FUENTE DE DATOS -->
+    <div class="card" style="margin-bottom:12px; border-color: color-mix(in srgb, var(--blue) 25%, transparent)">
+      <div class="card-label">ℹ️ FUENTE DE DATOS DEL BACKTESTING</div>
+      <div style="font-size:11px; line-height:1.7; color:var(--t)">
+        <strong style="color:var(--blue)">Datos:</strong> ~8,500 velas H1 reales del par EUR/USD obtenidas directamente de la API de <strong>OANDA</strong> (~16 meses de historia real).<br>
+        <strong style="color:var(--blue)">Simulación:</strong> spread 1.5 pips + slippage 0.3 pips + position sizing 1% real + gestión completa (parcial 50% en TP1, SL→BE tras BOS, timeout 25 velas).<br>
+        <strong style="color:var(--blue)">Filtros aplicados:</strong> noticias high-impact (NFP/CPI/FOMC/ECB), killzones London 3-5 AM ET y NY 8-12 ET, ADR mínimo 20%, ATR 8-80 pips, cooldown 1 trade/día.<br>
+        <strong style="color:var(--blue)">Motor:</strong> mismo motor ICT/SMC determinístico que opera en live → coherencia total entre simulación y operación real.
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-label">📊 RESUMEN BACKTESTING (DATOS REALES OANDA)</div>
+      <div class="grid grid-4">
+        <div><div class="card-label">TOTAL TRADES</div><div style="font-family:'IBM Plex Mono'; font-size:24px; font-weight:700" id="bt-total">--</div></div>
+        <div><div class="card-label">WIN RATE</div><div style="font-family:'IBM Plex Mono'; font-size:24px; font-weight:700; color:var(--g)" id="bt-wr">--%</div></div>
+        <div><div class="card-label">PROFIT FACTOR</div><div style="font-family:'IBM Plex Mono'; font-size:24px; font-weight:700; color:var(--gold)" id="bt-pf">--</div></div>
+        <div><div class="card-label">MAX DRAWDOWN</div><div style="font-family:'IBM Plex Mono'; font-size:24px; font-weight:700; color:var(--r)" id="bt-dd">--%</div></div>
+      </div>
+      <div class="grid grid-3" style="margin-top:14px">
+        <div class="kv"><span class="k">Total PnL</span><span class="v g" id="bt-pnl">--</span></div>
+        <div class="kv"><span class="k">Wins / Losses / BE</span><span class="v" id="bt-wlbe">--</span></div>
+        <div class="kv"><span class="k">Trades por semana</span><span class="v" id="bt-tpw">--</span></div>
+      </div>
+      <div style="margin-top:14px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+        <button class="btn btn-g" onclick="runBacktest()">▶ Ejecutar Backtesting</button>
+        <span id="bt-status" style="font-size:11px; color:var(--t2)"></span>
+        <div style="margin-left:auto; display:flex; gap:6px">
+          <button class="btn" onclick="exportBacktest('pdf')" title="PDF Ejecutivo Profesional" style="border-color:#ff3355;color:#ff3355">📄 PDF EJECUTIVO</button>
+          <button class="btn" onclick="exportBacktest('xlsx')" title="Exportar a Excel con formato">📊 EXCEL</button>
+          <button class="btn" onclick="exportBacktest('csv')" title="Exportar a CSV (Excel/Sheets)">📋 CSV</button>
+          <button class="btn" onclick="exportBacktest('json')" title="Exportar a JSON (análisis)">💻 JSON</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="sec-header">
+        <div class="sec-title">📋 TRADES SIMULADOS (Últimos 50)</div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Fecha</th><th>Killzone</th><th>Acción</th><th>Entry</th>
+            <th>SL</th><th>TP1/TP2</th><th>Outcome</th><th>P&amp;L</th><th>RR</th>
+          </tr></thead>
+          <tbody id="bt-rows"><tr><td colspan="9" class="empty">Aún no se ha ejecutado backtesting</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- TOAST PARA FEEDBACK DE TEMA -->
+<div class="toast" id="toast">Tema aplicado</div>
+
+<script>
+// v2.6.0-fixed4: API apunta al mismo origen (Railway sirve frontend Y backend)
+// Si se sirve desde Railway → API='' (relativo al dominio actual)
+// Si se sirve desde Netlify → API='https://web-production-e3f5c.up.railway.app' (fallback)
+const API = (window.location.hostname.includes('railway.app'))
+  ? ''
+  : 'https://web-production-e3f5c.up.railway.app';
+
+// ============== PAIR SELECTOR (v2.6) ==============
+let currentPair = localStorage.getItem('tpdcm_pair') || 'ALL';
+
+function pairParam(extraParam = '') {
+  // Helper: agrega ?pair=XXX si currentPair !== 'ALL'
+  if (currentPair === 'ALL') return extraParam;
+  const sep = extraParam.includes('?') ? '&' : '?';
+  return extraParam + sep + 'pair=' + currentPair;
+}
+
+function pairDisplay() {
+  if (currentPair === 'ALL') return 'PORTFOLIO MULTI-PAR · v2.6';
+  if (currentPair === 'EUR_USD') return 'EUR/USD INSTITUCIONAL · v2.6';
+  if (currentPair === 'GBP_USD') return 'GBP/USD INSTITUCIONAL · v2.6';
+  return currentPair + ' · v2.6';
+}
+
+function initPairSelector() {
+  const sel = document.getElementById('pair-selector');
+  if (!sel) return;
+  sel.value = currentPair;
+  document.getElementById('brand-subtitle').textContent = pairDisplay();
+  sel.addEventListener('change', (e) => {
+    currentPair = e.target.value;
+    localStorage.setItem('tpdcm_pair', currentPair);
+    document.getElementById('brand-subtitle').textContent = pairDisplay();
+    // Recargar todos los datos del dashboard
+    if (typeof refreshAll === 'function') refreshAll();
+  });
+}
+window.addEventListener('DOMContentLoaded', initPairSelector);
+
+// ============== THEME SWITCHER ==============
+const THEMES = {
+  'dark': 'Dark Institucional',
+  'light': 'Light Institucional',
+  'sepia': 'Protección de Vista',
+  'dark-fem': 'Dark Femenine',
+  'light-fem': 'Light Femenine'
+};
+
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('tpdcm-theme', theme);
+  document.querySelectorAll('.theme-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.theme === theme);
+  });
+  // Toast feedback
+  const toast = document.getElementById('toast');
+  toast.textContent = '✓ ' + THEMES[theme];
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 1500);
+}
+
+document.querySelectorAll('.theme-btn').forEach(b => {
+  b.onclick = () => setTheme(b.dataset.theme);
+});
+
+// Cargar tema guardado
+const savedTheme = localStorage.getItem('tpdcm-theme') || 'dark';
+setTheme(savedTheme);
+
+// ============== TAB SWITCHING ==============
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(x => x.classList.add('hidden'));
+    t.classList.add('active');
+    document.getElementById('tab-' + t.dataset.tab).classList.remove('hidden');
+    // Cargar historial al entrar al tab Claude
+    if (t.dataset.tab === 'claude-chat') {
+      loadClaudeHistory();
+    }
+  };
+});
+
+// ============== HELPERS ==============
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 5) => (typeof v === 'number' ? v.toFixed(d) : '--');
+const fmtPct = v => (typeof v === 'number' ? (v * 100).toFixed(0) + '%' : '--');
+const fmtUsd = v => '$' + (typeof v === 'number' ? v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '--');
+const fmtPips = v => (typeof v === 'number' ? v.toFixed(1) + ' pips' : '--');
+function setPill(id, ok, label) {
+  const p = $(id);
+  if (!p) return;
+  p.classList.remove('pill-g', 'pill-r', 'pill-gold');
+  p.classList.add(ok ? 'pill-g' : 'pill-r');
+  if (label) p.innerHTML = '<span class="pill-dot"></span>' + label;
+}
+const REGIME_CLASS = {
+  trending: 'regime-trending', expansion: 'regime-expansion',
+  ranging: 'regime-ranging', compression: 'regime-compression',
+  choppy: 'regime-choppy', unknown: 'regime-unknown'
+};
+
+async function fetchJSON(path) {
+  try {
+    const r = await fetch(API + path);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.json();
+  } catch(e) {
+    console.error('Fetch error', path, e);
+    return null;
+  }
+}
+
+// ============== RENDER DASHBOARD ==============
+function renderDashboard(d) {
+  if (!d) return;
+  const dec = d.decision || {};
+  const ict = d.ict || {};
+  const regime = ict.regime || {};
+  const anom = ict.anomalies_detected || {};
+
+  setPill('pill-server', d.server === 'online', d.server === 'online' ? 'SERVER' : 'OFFLINE');
+
+  $('dec-action').textContent = dec.action || '--';
+  $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
+  $('dec-conf').textContent = fmtPct(dec.confidence);
+  $('dec-score').textContent = (dec.score || 0).toFixed(0) + '/100';
+  const sourceMap = {
+    hold_technical: 'Python decidió HOLD (sin setup técnico válido)',
+    validated: '✓ Setup validado por Claude · Listo para ejecutar',
+    vetoed: '🟡 Setup técnico válido pero VETADO por Claude',
+    cognitive_down_elite: 'Claude no disponible · Setup elite con penalty',
+    cognitive_down_non_elite: 'Claude no disponible · Score no elite · HOLD'
+  };
+  $('dec-source').textContent = sourceMap[dec.source] || dec.source || '--';
+  $('dec-kz').textContent = dec.killzone || '--';
+  $('dec-htf').textContent = (dec.htf_bias || '--').toUpperCase();
+  $('dec-veto').textContent = dec.cognitive_veto ? 'SÍ' : 'NO';
+  $('dec-veto').classList.toggle('r', dec.cognitive_veto);
+  $('dec-veto').classList.toggle('g', !dec.cognitive_veto);
+  $('dec-mult').textContent = dec.cognitive_multiplier != null ? dec.cognitive_multiplier.toFixed(2) + 'x' : '--';
+  const narr = dec.narrative || dec.reason || '';
+  $('dec-narrative').textContent = narr ? '"' + narr + '"' : 'Sin narrativa cognitiva disponible';
+  $('dec-narrative').classList.toggle('empty', !narr);
+  $('dec-narrative').classList.toggle('vetoed', dec.cognitive_veto);
+
+  const rtype = (regime.type || 'unknown').toLowerCase();
+  const rbadge = $('reg-badge');
+  rbadge.textContent = rtype.toUpperCase();
+  rbadge.className = 'regime-badge ' + (REGIME_CLASS[rtype] || 'regime-unknown');
+  $('reg-quality').textContent = 'Quality: ' + (regime.regime_quality || '--');
+  $('reg-vol').textContent = regime.volatility_z != null ? (regime.volatility_z > 0 ? '+' : '') + regime.volatility_z.toFixed(2) : '--';
+  $('reg-trend').textContent = regime.trending_score != null ? (regime.trending_score * 100).toFixed(0) + '%' : '--';
+  $('reg-trend-bar').style.width = (regime.trending_score != null ? regime.trending_score * 100 : 0) + '%';
+  $('reg-momentum').textContent = regime.momentum_consistency != null ? (regime.momentum_consistency * 100).toFixed(0) + '%' : '--';
+  $('reg-chop').textContent = regime.chop_penalty != null ? regime.chop_penalty.toFixed(2) : '--';
+
+  const anomEl = $('reg-anomalies');
+  const severity = anom.severity || 'none';
+  const active = anom.anomalies_active || [];
+  if (active.length === 0) {
+    anomEl.innerHTML = '<span class="anomaly-tag anomaly-low">Ninguna</span>';
+  } else {
+    anomEl.innerHTML = active.map(a => {
+      const cls = severity === 'high' ? 'anomaly-high' : severity === 'medium' ? 'anomaly-medium' : 'anomaly-low';
+      return '<span class="anomaly-tag ' + cls + '">' + a + '</span>';
+    }).join('');
+  }
+
+  const sweep = ict.sweep_detected;
+  $('ict-sweep-det').textContent = sweep ? 'SÍ' : 'NO';
+  $('ict-sweep-det').classList.toggle('g', sweep);
+  $('ict-sweep-det').classList.toggle('r', !sweep);
+  $('ict-sweep-lvl').textContent = ict.sweep_level ? fmt(ict.sweep_level) : '--';
+  $('ict-sweep-q').textContent = sweep ? ((ict.sweep_quality || '--').toUpperCase() + ' @ ' + (ict.sweep_level_type || '--')) : '--';
+  $('ict-sweep-wick').textContent = ict.sweep_wick ? (ict.sweep_wick * 100).toFixed(0) + '%' : '--';
+  $('ict-bos').textContent = (ict.structure_bos_q || '--').toUpperCase();
+  $('ict-disp').textContent = ((ict.displacement || {}).strength || '--').toUpperCase();
+  $('ict-ind').textContent = ((ict.inducement || {}).quality || '--').toUpperCase();
+  $('ict-fvgob').textContent = ict.fvg ? 'FVG ✓' : (ict.ob ? 'OB ✓' : '--');
+
+  $('ict-price').textContent = d.current_price ? fmt(d.current_price) : '--';
+  $('ict-atr').textContent = fmtPips(ict.atr_pips);
+  $('ict-adr').textContent = fmtPct(ict.adr_pct);
+  $('ict-adr-bar').style.width = (ict.adr_pct != null ? ict.adr_pct * 100 : 50) + '%';
+  $('ict-htf-str').textContent = fmtPct(ict.htf_strength);
+  $('ict-htf-bar').style.width = (ict.htf_strength != null ? ict.htf_strength * 100 : 0) + '%';
+  const liqTarget = ict.liq_target || {};
+  $('ict-target').textContent = liqTarget.level ? fmt(liqTarget.level) : '--';
+  $('ict-target-rr').textContent = liqTarget.rr ? liqTarget.rr + 'R' : '--';
+
+  $('lvl-entry').textContent = d.current_price ? fmt(d.current_price) : '--';
+  $('lvl-sl').textContent = dec.sl ? fmt(dec.sl) : '--';
+  $('lvl-tp1').textContent = dec.tp1 ? fmt(dec.tp1) : '--';
+  $('lvl-tp2').textContent = dec.tp2 ? fmt(dec.tp2) : '--';
+  $('lvl-rr').textContent = (dec.rr1 || '--') + ' / ' + (dec.rr2 || '--');
+  $('lvl-pos').textContent = dec.pos_size ? dec.pos_size.toLocaleString() + ' units' : '--';
+  $('lvl-risk').textContent = ((d.risk_status || {}).risk_pct_current || 1.0) + '%';
+
+  const hist = d.history || [];
+  $('hist-count').textContent = hist.length + ' decisiones';
+  if (hist.length === 0) {
+    $('hist-rows').innerHTML = '<tr><td colspan="7" class="empty">Sin decisiones todavía</td></tr>';
+  } else {
+    $('hist-rows').innerHTML = hist.slice().reverse().slice(0, 20).map(h => {
+      const a = h.action || 'HOLD';
+      const reason = (h.ceo_reason || h.source || '').slice(0, 60);
+      return '<tr>' +
+        '<td>' + (h.time || '--') + '</td>' +
+        '<td>' + (h.killzone || '--') + '</td>' +
+        '<td class="col-action ' + a + '">' + a + '</td>' +
+        '<td>' + (h.score || 0).toFixed(0) + '</td>' +
+        '<td>' + ((h.confidence || 0) * 100).toFixed(0) + '%</td>' +
+        '<td>' + (h.htf_bias || '--') + '</td>' +
+        '<td style="color:var(--t2); font-size:10px">' + reason + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+}
+
+function renderICT(d) {
+  if (!d) return;
+  const ict = d.ict || {};
+  const score = ict.score_total || 0;
+  const factors = ict.score_factors || {};
+  const reasons = ict.score_reasons || [];
+
+  $('ict-score-total').textContent = score.toFixed(0) + '/100';
+  $('ict-score-exec').textContent = ict.score_exec ? '✓ EJECUTABLE' : '✗ NO EJECUTABLE';
+  $('ict-score-exec').style.color = ict.score_exec ? 'var(--g)' : 'var(--r)';
+
+  const factorKeys = ['htf_alignment','sweep_quality','displacement','inducement','bos_quality','fvg_ob_quality','session_quality','adr_remaining','volatility','consolidation'];
+  $('ict-factors').innerHTML = factorKeys.filter(k => factors[k]).map(k => {
+    const f = factors[k];
+    const pct = f.max > 0 ? (f.pts / f.max) * 100 : 0;
+    const barColor = pct >= 70 ? 'bar-g' : pct >= 40 ? 'bar-gold' : 'bar-r';
+    return '<div class="factor-row">' +
+      '<div class="name">' + k.replace(/_/g, ' ') + '</div>' +
+      '<div class="pts">' + f.pts.toFixed(0) + '/' + f.max.toFixed(0) + '</div>' +
+      '<div class="bar"><div class="bar-fill ' + barColor + '" style="width:' + pct + '%"></div></div>' +
+      '<div class="tag">' + (f.tag || '') + '</div>' +
+      '</div>';
+  }).join('') || '<div class="empty">Sin factores calculados</div>';
+
+  $('chk-htf').textContent = (ict.htf_bias || '--').toUpperCase() + ' (' + ((ict.htf_strength || 0) * 100).toFixed(0) + '%)';
+  $('chk-liq').textContent = '✓';
+  const ind = ict.inducement || {};
+  $('chk-ind').textContent = ind.found ? '✓ ' + (ind.quality || '').toUpperCase() : '✗';
+  $('chk-sweep').textContent = ict.sweep_detected ? '✓ ' + (ict.sweep_quality || '').toUpperCase() : '✗';
+  const disp = ict.displacement || {};
+  $('chk-disp').textContent = disp.found ? '✓ ' + (disp.strength || '').toUpperCase() : '✗';
+  $('chk-bos').textContent = ict.structure_bos ? '✓ ' + (ict.structure_bos_q || '').toUpperCase() : '✗';
+  $('chk-fvgob').textContent = (ict.fvg || ict.ob) ? '✓' : '✗';
+  const target = ict.liq_target || {};
+  $('chk-target').textContent = target.level > 0 ? '✓ ' + target.type + ' @ ' + fmt(target.level) : '✗';
+  $('chk-session').textContent = (ict.killzone || 'fuera') + ' · ADR ' + fmtPct(ict.adr_pct) + ' · ATR ' + fmtPips(ict.atr_pips);
+
+  $('ict-reasons').innerHTML = reasons.length > 0 ?
+    reasons.map(r => '• ' + r).join('<br>') :
+    '<div class="empty">Sin razones calculadas</div>';
+
+  const ez = ict.entry_zone || {};
+  $('entry-high').textContent = ez.high ? fmt(ez.high) : '--';
+  $('entry-low').textContent = ez.low ? fmt(ez.low) : '--';
+  $('entry-type').textContent = ict.fvg ? 'FVG' : (ict.ob ? 'ORDER BLOCK' : '--');
+}
+
+function renderRegime(d) {
+  if (!d) return;
+  const dec = d.decision || {};
+  const ict = d.ict || {};
+  const regime = ict.regime || {};
+  const anom = ict.anomalies_detected || {};
+
+  $('cog-veto-big').textContent = dec.cognitive_veto ? 'SÍ' : 'NO';
+  $('cog-veto-big').style.color = dec.cognitive_veto ? 'var(--r)' : 'var(--g)';
+  $('cog-mult-big').textContent = dec.cognitive_multiplier != null ? dec.cognitive_multiplier.toFixed(2) + 'x' : '--';
+  $('cog-quality-big').textContent = (dec.narrative_quality || '--').toUpperCase();
+  const nq = dec.narrative_quality;
+  $('cog-quality-big').style.color = nq === 'clean' ? 'var(--g)' : nq === 'acceptable' ? 'var(--gold)' : nq === 'dirty' ? 'var(--r)' : 'var(--t2)';
+
+  const cog = d.cognitive || {};
+  const cogStatus = cog.disabled ? 'DEGRADED' : 'ACTIVE';
+  $('cog-status-big').textContent = cogStatus;
+  $('cog-status-big').style.color = cog.disabled ? 'var(--r)' : 'var(--g)';
+
+  const narr = dec.narrative || '';
+  $('cog-narrative').textContent = narr ? '"' + narr + '"' : 'Sin narrativa cognitiva disponible (esperando setup BUY/SELL válido)';
+  $('cog-narrative').classList.toggle('empty', !narr);
+
+  $('cog-regime-assess').textContent = dec.regime_assessment || 'No disponible';
+
+  const anomaliesClaude = dec.anomalies || [];
+  if (anomaliesClaude.length === 0) {
+    $('cog-anomalies').innerHTML = '<span class="anomaly-tag anomaly-low">Ninguna interpretada por Claude</span>';
+  } else {
+    $('cog-anomalies').innerHTML = anomaliesClaude.map(a => '<span class="anomaly-tag anomaly-medium">' + a + '</span>').join('');
+  }
+
+  const rtype = (regime.type || 'unknown').toLowerCase();
+  const rbadge2 = $('reg2-badge');
+  rbadge2.textContent = rtype.toUpperCase();
+  rbadge2.className = 'regime-badge ' + (REGIME_CLASS[rtype] || 'regime-unknown');
+  $('reg2-type').textContent = rtype.toUpperCase();
+  $('reg2-quality').textContent = (regime.regime_quality || '--').toUpperCase();
+  $('reg2-vol').textContent = regime.volatility_z != null ? (regime.volatility_z > 0 ? '+' : '') + regime.volatility_z.toFixed(2) : '--';
+  $('reg2-trend').textContent = regime.trending_score != null ? (regime.trending_score * 100).toFixed(0) + '%' : '--';
+  $('reg2-trend-bar').style.width = (regime.trending_score != null ? regime.trending_score * 100 : 0) + '%';
+  $('reg2-mom').textContent = regime.momentum_consistency != null ? (regime.momentum_consistency * 100).toFixed(0) + '%' : '--';
+  $('reg2-mom-bar').style.width = (regime.momentum_consistency != null ? regime.momentum_consistency * 100 : 0) + '%';
+  $('reg2-chop').textContent = regime.chop_penalty != null ? regime.chop_penalty.toFixed(2) : '--';
+  $('reg2-chop-bar').style.width = (regime.chop_penalty != null ? regime.chop_penalty * 100 : 0) + '%';
+
+  const sev = (anom.severity || 'none').toUpperCase();
+  $('anom-severity').textContent = sev;
+  $('anom-severity').style.color = sev === 'HIGH' ? 'var(--r)' : sev === 'MEDIUM' ? 'var(--gold)' : sev === 'LOW' ? 'var(--blue)' : 'var(--g)';
+  $('anom-count').textContent = anom.anomaly_count != null ? anom.anomaly_count : '--';
+  $('anom-wicks').textContent = anom.consecutive_long_wicks != null ? anom.consecutive_long_wicks : '--';
+  $('anom-alt').textContent = anom.mechas_consecutivas != null ? anom.mechas_consecutivas : '--';
+  $('anom-gap').textContent = anom.gap_post_news === true ? '⚠️ SÍ' : 'NO';
+  $('anom-noret').textContent = anom.sweep_without_retest === true ? '⚠️ SÍ' : 'NO';
+  $('anom-vol').textContent = anom.volume_dissonance === true ? '⚠️ SÍ' : 'NO';
+  $('anom-vel').textContent = anom.displacement_velocity_pips != null ? anom.displacement_velocity_pips.toFixed(1) + ' pips' : '--';
+}
+
+function renderMemory(d) {
+  if (!d) return;
+  const mem = d.memory || {};
+  const risk = d.risk_status || {};
+  const cog = d.cognitive || {};
+  const learning = d.learning || {};
+
+  $('mem-edge').textContent = (mem.edge_score || 100).toFixed(0) + '/100';
+  $('mem-defensive').textContent = mem.defensive_mode ? 'ACTIVO' : 'INACTIVO';
+  $('mem-defensive').style.color = mem.defensive_mode ? 'var(--r)' : 'var(--g)';
+  $('mem-defensive-r').textContent = mem.defensive_reason || 'Sin restricciones';
+
+  $('risk-cons').textContent = risk.consecutive_losses || 0;
+  $('risk-daily').textContent = fmtUsd(risk.daily_loss_usd || 0);
+  $('risk-pct').textContent = (risk.risk_pct_current || 1.0).toFixed(2) + '%';
+  $('risk-paused').textContent = risk.trading_paused ? 'SÍ' : 'NO';
+  $('risk-paused').classList.toggle('r', risk.trading_paused);
+
+  const stats = mem.session_stats || {};
+  const statsKeys = Object.keys(stats);
+  if (statsKeys.length === 0) {
+    $('session-stats').innerHTML = '<div class="empty">Sin trades acumulados todavía</div>';
+  } else {
+    $('session-stats').innerHTML = statsKeys.map(k => {
+      const s = stats[k];
+      const wr = s.trades > 0 ? (s.wins / s.trades * 100).toFixed(0) : 0;
+      return '<div class="kv"><span class="k">' + k + '</span>' +
+        '<span class="v">' + s.trades + ' trades · WR ' + wr + '% · ' + fmtUsd(s.pnl) + '</span></div>';
+    }).join('');
+  }
+
+  const weights = learning.current_weights || {};
+  $('weights').innerHTML = Object.keys(weights).map(k => {
+    return '<div class="kv"><span class="k">' + k.replace(/_/g, ' ') + '</span>' +
+      '<span class="v gold">' + weights[k].toFixed(1) + '</span></div>';
+  }).join('') || '<div class="empty">Pesos no disponibles</div>';
+
+  $('cog-calls').textContent = cog.recent_calls || 0;
+  $('cog-failures').textContent = cog.recent_failures || 0;
+  const calls = cog.recent_calls || 0;
+  const rate = calls > 0 ? ((cog.recent_failures || 0) / calls * 100).toFixed(0) + '%' : '--';
+  $('cog-rate').textContent = rate;
+  $('cog-disabled').textContent = cog.disabled ? '⚠️ SÍ' : '✓ NO';
+  $('cog-disabled').classList.toggle('r', cog.disabled);
+  $('cog-disabled').classList.toggle('g', !cog.disabled);
+}
+
+function renderTrades(d, liveTrades) {
+  if (!d) return;
+  const opens = d.open_trades || [];
+  if (opens.length === 0) {
+    $('open-trades').innerHTML = '<div class="empty">No hay trades abiertos en este momento</div>';
+  } else {
+    $('open-trades').innerHTML = opens.map(t => {
+      const units = parseInt(t.currentUnits || 0);
+      const a = units > 0 ? 'BUY' : 'SELL';
+      const pnl = parseFloat(t.unrealizedPL || 0);
+      return '<div class="kv"><span class="k">ID ' + t.id + ' · ' + a + '</span>' +
+        '<span class="v ' + (pnl >= 0 ? 'g' : 'r') + '">' + fmtUsd(pnl) + '</span></div>';
+    }).join('');
+  }
+
+  const trades = (liveTrades && liveTrades.trades) || [];
+  $('trades-count').textContent = trades.length + ' trades';
+  if (trades.length === 0) {
+    $('trades-rows').innerHTML = '<tr><td colspan="9" class="empty">Aún no se han ejecutado trades automáticos</td></tr>';
+  } else {
+    $('trades-rows').innerHTML = trades.slice(0, 50).map(t => {
+      const pnl = t.result_usd || 0;
+      const o = t.outcome || 'OPEN';
+      return '<tr>' +
+        '<td>' + (t.date || '--') + '</td>' +
+        '<td>' + (t.time || '--') + '</td>' +
+        '<td class="col-action ' + (t.action || 'HOLD') + '">' + (t.action || '--') + '</td>' +
+        '<td>' + (t.entry_price ? fmt(t.entry_price) : '--') + '</td>' +
+        '<td>' + o + '</td>' +
+        '<td class="col-pnl ' + (pnl >= 0 ? 'pos' : 'neg') + '">' + fmtUsd(pnl) + '</td>' +
+        '<td>' + (t.killzone || '--') + '</td>' +
+        '<td>' + (t.score || 0).toFixed(0) + '</td>' +
+        '<td style="font-size:10px; color:var(--t2)">' + ((t.ceo_reason || '').slice(0, 50)) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+}
+
+function renderBacktest(bt) {
+  if (!bt) return;
+  const sum = bt.summary || {};
+  const trades = bt.trades || [];
+
+  $('bt-total').textContent = sum.total_trades || '--';
+  $('bt-wr').textContent = sum.win_rate ? (sum.win_rate * 100).toFixed(1) + '%' : '--%';
+  $('bt-pf').textContent = sum.profit_factor || '--';
+  $('bt-dd').textContent = sum.max_drawdown ? sum.max_drawdown.toFixed(1) + '%' : '--%';
+  $('bt-pnl').textContent = sum.total_pnl != null ? fmtUsd(sum.total_pnl) : '--';
+  $('bt-wlbe').textContent = (sum.wins || 0) + ' / ' + (sum.losses || 0) + ' / ' + (sum.breakeven || 0);
+  $('bt-tpw').textContent = sum.trades_per_week || '--';
+  $('bt-status').textContent = bt.running ? '⏳ Ejecutando...' : (bt.last_run ? '✓ Último: ' + new Date(bt.last_run).toLocaleString() : '');
+
+  if (trades.length === 0) {
+    $('bt-rows').innerHTML = '<tr><td colspan="9" class="empty">Aún no se ha ejecutado backtesting</td></tr>';
+  } else {
+    $('bt-rows').innerHTML = trades.slice(0, 50).map(t => {
+      return '<tr>' +
+        '<td>' + (t.date || '--') + '</td>' +
+        '<td>' + (t.killzone || '--') + '</td>' +
+        '<td class="col-action ' + t.action + '">' + t.action + '</td>' +
+        '<td>' + fmt(t.entry) + '</td>' +
+        '<td>' + fmt(t.sl) + '</td>' +
+        '<td>' + fmt(t.tp1) + ' / ' + fmt(t.tp2) + '</td>' +
+        '<td>' + t.outcome + '</td>' +
+        '<td class="col-pnl ' + (t.result >= 0 ? 'pos' : 'neg') + '">' + fmtUsd(t.result) + '</td>' +
+        '<td>' + t.rr_tp2 + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+}
+
+async function refreshAll() {
+  // v2.6: filtra por currentPair
+  const [d, health, bt, liveTrades] = await Promise.all([
+    fetchJSON('/dashboard' + pairParam()),
+    fetchJSON('/health'),
+    fetchJSON('/backtesting'),
+    fetchJSON('/live-trades' + pairParam())
+  ]);
+
+  if (health) {
+    $('hdr-balance').textContent = fmtUsd(health.balance || 0);
+    $('hdr-edge').textContent = (health.edge_score || 100).toFixed(0) + '/100';
+    setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
+    setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
+    setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
+  }
+
+  if (d) {
+    $('hdr-time').textContent = d.ts ? new Date(d.ts).toLocaleTimeString() : '--';
+    renderDashboard(d);
+    renderICT(d);
+    renderRegime(d);
+    renderMemory(d);
+    renderTrades(d, liveTrades);
+  }
+
+  if (bt) renderBacktest(bt);
+}
+
+async function runBacktest() {
+  // v2.6: si hay par seleccionado, lo manda como filtro
+  const pairLabel = currentPair === 'ALL' ? 'TODOS los pares' : currentPair;
+  $('bt-status').innerHTML = '<span class="spinner"></span> Ejecutando backtesting de ' + pairLabel + '...';
+  await fetchJSON('/run-backtesting' + pairParam());
+  setTimeout(async () => {
+    const bt = await fetchJSON('/backtesting');
+    if (bt) renderBacktest(bt);
+  }, 8000);
+}
+
+// ============== EXPORTACIÓN DE BACKTESTING ==============
+async function exportBacktest(format) {
+  $('bt-status').innerHTML = '<span class="spinner"></span> Generando export...';
+  const bt = await fetchJSON('/backtesting');
+  if (!bt || !bt.trades || bt.trades.length === 0) {
+    $('bt-status').innerHTML = '⚠️ No hay trades para exportar. Ejecuta primero el backtesting.';
+    return;
+  }
+
+  const trades = bt.trades;
+  const summary = bt.summary || {};
+  const now = new Date();
+  const stamp = now.toISOString().slice(0, 19).replace(/[T:]/g, '-');
+  const filename = `tpdcm-ia_backtest_${stamp}`;
+
+  if (format === 'csv') {
+    exportToCSV(trades, summary, filename);
+  } else if (format === 'json') {
+    exportToJSON(bt, filename);
+  } else if (format === 'xlsx') {
+    exportToExcel(trades, summary, filename);
+  } else if (format === 'pdf') {
+    exportToPDF(trades, summary, filename);
+  }
+
+  $('bt-status').innerHTML = '✓ Exportado: ' + filename + '.' + format;
+  setTimeout(() => { $('bt-status').innerHTML = ''; }, 4000);
+}
+
+// ============== PDF EJECUTIVO (v2.6) ==============
+function exportToPDF(trades, summary, filename) {
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const now = new Date();
+    let y = 18;
+
+    // ===== HEADER =====
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text('CONFIDENTIAL · PROPRIETARY TRADING REPORT', pageW/2, y, {align:'center'});
+    y += 8;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.setTextColor(20, 20, 20);
+    doc.text('TPDCM-IA', pageW/2, y, {align:'center'});
+    y += 6;
+
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(80, 80, 80);
+    doc.text('Trading Platform Deep Claude Machine Intelligence', pageW/2, y, {align:'center'});
+    y += 5;
+
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    const pairLabel = summary.pair || (summary.multi_pair ? 'PORTFOLIO MULTI-PAR' : 'EUR/USD');
+    doc.text('Reporte Ejecutivo · ' + pairLabel + ' · ' + now.toLocaleDateString('es-ES', {year:'numeric',month:'long',day:'numeric'}), pageW/2, y, {align:'center'});
+    y += 4;
+
+    doc.setDrawColor(20, 20, 20);
+    doc.setLineWidth(0.5);
+    doc.line(15, y, pageW-15, y);
+    y += 10;
+
+    // ===== RESUMEN EJECUTIVO =====
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text('RESUMEN EJECUTIVO', 15, y);
+    doc.line(15, y+1, pageW-15, y+1);
+    y += 7;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(30, 30, 30);
+    const totalTrades = summary.total_trades || trades.length;
+    const wr = ((summary.win_rate || 0) * 100).toFixed(1);
+    const pf = (summary.profit_factor || 0).toFixed(2);
+    const pnl = (summary.total_pnl || 0).toFixed(2);
+    const dd = (summary.max_drawdown || 0).toFixed(2);
+    const summaryText =
+      'El sistema TPDCM-IA ha completado un backtest historico institucional sobre datos OANDA. ' +
+      'El portfolio analizado genero ' + totalTrades + ' operaciones con un Win Rate del ' + wr + '%, ' +
+      'un Profit Factor de ' + pf + ', equivalente a $' + pnl + ' USD de P&L total ' +
+      'y un Drawdown Maximo del ' + dd + '%.';
+    const splitText = doc.splitTextToSize(summaryText, pageW - 30);
+    doc.text(splitText, 15, y);
+    y += splitText.length * 5 + 5;
+
+    // ===== KPIs PRINCIPALES (cards) =====
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text('METRICAS CLAVE', 15, y);
+    doc.line(15, y+1, pageW-15, y+1);
+    y += 8;
+
+    const kpis = [
+      ['Total Trades', String(totalTrades), [20,20,20]],
+      ['Win Rate', wr + '%', wr >= 60 ? [0,150,80] : [200,50,50]],
+      ['Profit Factor', pf, pf >= 1.5 ? [0,150,80] : [200,50,50]],
+      ['Total P&L', '$' + pnl, summary.total_pnl >= 0 ? [0,150,80] : [200,50,50]],
+      ['Max DD', dd + '%', dd <= 3 ? [0,150,80] : [240,160,50]],
+    ];
+    const kpiW = (pageW - 30) / kpis.length;
+    kpis.forEach((kpi, i) => {
+      const x = 15 + (i * kpiW);
+      doc.setDrawColor(180, 180, 180);
+      doc.rect(x, y, kpiW - 2, 18);
+      doc.setFont('courier', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(120, 120, 120);
+      doc.text(kpi[0], x + kpiW/2 - 1, y + 5, {align:'center'});
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(kpi[2][0], kpi[2][1], kpi[2][2]);
+      doc.text(kpi[1], x + kpiW/2 - 1, y + 13, {align:'center'});
+    });
+    y += 24;
+
+    // ===== TABLA DE TRADES =====
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 120);
+    doc.text('OPERACIONES DETALLE (Top 20)', 15, y);
+    y += 4;
+
+    const tradeRows = trades.slice(0, 20).map(t => [
+      t.date || '',
+      (t.pair || t.pair_id || '').replace('_', '/'),
+      t.killzone || '',
+      t.action || '',
+      (t.entry_price || 0).toFixed(5),
+      (t.sl || 0).toFixed(5),
+      (t.tp2 || 0).toFixed(5),
+      t.outcome || '',
+      '$' + (t.result || 0).toFixed(0),
+      (t.score || 0).toFixed(1),
+    ]);
+
+    doc.autoTable({
+      startY: y,
+      head: [['Fecha', 'Par', 'Sesion', 'Action', 'Entry', 'SL', 'TP2', 'Outcome', 'P&L', 'Score']],
+      body: tradeRows,
+      theme: 'striped',
+      headStyles: { fillColor: [40, 40, 40], textColor: [255, 255, 255], fontSize: 8 },
+      bodyStyles: { fontSize: 7, font: 'courier' },
+      alternateRowStyles: { fillColor: [245, 245, 245] },
+      columnStyles: {
+        8: { halign: 'right' },
+        9: { halign: 'right' },
+      },
+      margin: { left: 15, right: 15 },
+    });
+
+    // ===== FOOTER =====
+    const finalY = doc.lastAutoTable.finalY + 8;
+    doc.setDrawColor(200, 200, 200);
+    doc.line(15, finalY, pageW-15, finalY);
+    doc.setFont('courier', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(140, 140, 140);
+    doc.text('Documento generado: ' + now.toLocaleString('es-ES'), 15, finalY + 4);
+    doc.text('TPDCM-IA v2.6.0-beta-fixed3 · Datos: OANDA Practice API', 15, finalY + 8);
+    doc.text('No constituye recomendacion de inversion. Solo para uso interno.', pageW - 15, finalY + 4, {align: 'right'});
+
+    doc.save(filename + '.pdf');
+  } catch (err) {
+    console.error('Error PDF:', err);
+    alert('Error al generar PDF: ' + err.message);
+  }
+}
+
+function exportToCSV(trades, summary, filename) {
+  // Headers
+  const headers = [
+    'Fecha', 'Sesion', 'Killzone', 'Accion', 'Entry', 'Fill_Price',
+    'SL', 'TP1', 'TP2', 'RR_TP1', 'RR_TP2_Real',
+    'Outcome', 'Result_USD', 'Confidence', 'Score',
+    'Sweep_Level', 'Sweep_Type', 'Sweep_Quality', 'Wick_Pct',
+    'HTF_Bias', 'HTF_Strength', 'BOS_Quality', 'Displacement', 'Inducement',
+    'Liq_Target_Level', 'Liq_Target_Type', 'ADR_Pct', 'ATR_Pips',
+    'Velas_Duration', 'SL_Moved_BE', 'BE_Vela', 'Partial_Closed',
+    'PnL_Parcial', 'TP1_Vela', 'Gestion', 'News_Blocked',
+    'Score_Factors', 'Confirmaciones', 'CEO_Analysis', 'CEO_Recommendation', 'Failure_Factors'
+  ];
+
+  const rows = trades.map(t => [
+    t.date || '', t.session || '', t.killzone || '', t.action || '',
+    t.entry || '', t.fill_price || '',
+    t.sl || '', t.tp1 || '', t.tp2 || '',
+    t.rr_tp1 || '', t.rr_tp2 || '',
+    t.outcome || '', t.result || '', t.confidence || '', t.score || '',
+    t.sweepLevel || '', t.sweep_level_type || '', t.sweep_quality || '', t.wick_pct || '',
+    t.htf_bias || '', t.htf_strength || '', t.bos_quality || '',
+    t.displacement_strength || '', t.inducement_quality || '',
+    t.liq_obj_level || '', t.liq_obj_type || '',
+    t.adr_pct || '', t.atr_pips || '',
+    t.velas_duration || '', t.sl_moved_be || '', t.be_vela || '',
+    t.partial_closed || '', t.pnl_parcial || '', t.tp1_vela || '',
+    `"${(t.gestion || '').replace(/"/g, '""')}"`,
+    t.news_blocked || '',
+    `"${(t.score_factors || '').replace(/"/g, '""')}"`,
+    `"${(t.confirmaciones || '').replace(/"/g, '""')}"`,
+    `"${(t.ceo_analysis || '').replace(/"/g, '""')}"`,
+    `"${(t.ceo_recommendation || '').replace(/"/g, '""')}"`,
+    `"${(t.failure_factors || '').replace(/"/g, '""')}"`
+  ].join(','));
+
+  // Summary header en el CSV
+  const summaryRows = [
+    'TPDCM-IA Backtesting Report',
+    'Generated: ' + new Date().toLocaleString(),
+    'Pair: EUR/USD',
+    'Source: OANDA API real candles (H1)',
+    '',
+    'SUMMARY',
+    'Total Trades,' + (summary.total_trades || 0),
+    'Wins,' + (summary.wins || 0),
+    'Losses,' + (summary.losses || 0),
+    'Breakeven,' + (summary.breakeven || 0),
+    'Win Rate,' + ((summary.win_rate || 0) * 100).toFixed(2) + '%',
+    'Profit Factor,' + (summary.profit_factor || 0),
+    'Total PnL USD,' + (summary.total_pnl || 0),
+    'Max Drawdown %,' + (summary.max_drawdown || 0),
+    'Trades per Week,' + (summary.trades_per_week || 0),
+    '',
+    'TRADES DETAIL',
+    headers.join(',')
+  ];
+
+  const csv = '\uFEFF' + summaryRows.concat(rows).join('\n');
+  downloadFile(csv, filename + '.csv', 'text/csv;charset=utf-8;');
+}
+
+function exportToJSON(bt, filename) {
+  const data = {
+    metadata: {
+      system: 'TPDCM-IA v2.3',
+      pair: 'EUR/USD',
+      generated_at: new Date().toISOString(),
+      source: 'OANDA API real candles H1',
+      backtest_run_at: bt.last_run || null
+    },
+    summary: bt.summary || {},
+    trades: bt.trades || []
+  };
+  const json = JSON.stringify(data, null, 2);
+  downloadFile(json, filename + '.json', 'application/json');
+}
+
+function exportToExcel(trades, summary, filename) {
+  if (typeof XLSX === 'undefined') {
+    alert('Librería Excel no cargó. Intenta CSV.');
+    return;
+  }
+
+  const wb = XLSX.utils.book_new();
+
+  // === HOJA 1: RESUMEN ===
+  const summaryData = [
+    ['TPDCM-IA · BACKTESTING REPORT'],
+    ['Generated', new Date().toLocaleString()],
+    ['Pair', 'EUR/USD'],
+    ['Source', 'OANDA API · Real Candles H1'],
+    ['Data Range', '~16 meses (8500 velas H1)'],
+    ['Backtest Run', bt_state_lastRun || 'N/A'],
+    [''],
+    ['MÉTRICAS PRINCIPALES'],
+    ['Total Trades', summary.total_trades || 0],
+    ['Wins', summary.wins || 0],
+    ['Losses', summary.losses || 0],
+    ['Breakeven', summary.breakeven || 0],
+    ['Win Rate %', ((summary.win_rate || 0) * 100).toFixed(2)],
+    ['Profit Factor', summary.profit_factor || 0],
+    ['Total PnL USD', summary.total_pnl || 0],
+    ['Max Drawdown %', summary.max_drawdown || 0],
+    ['Trades per Week', summary.trades_per_week || 0],
+    [''],
+    ['CONFIGURACIÓN DEL SISTEMA'],
+    ['Risk per Trade', '1% del balance'],
+    ['Spread Simulado', '1.5 pips'],
+    ['Slippage Simulado', '0.3 pips'],
+    ['Gestión TP1', 'Cierre 50% parcial'],
+    ['Gestión SL', 'Movido a BE tras BOS post-TP1'],
+    ['Timeout', '25 velas H1 (~25 horas)'],
+    ['Filtros activos', 'News, sesiones, ADR, ATR, cooldown 1 trade/día']
+  ];
+  const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+  wsSummary['!cols'] = [{wch: 25}, {wch: 30}];
+  XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen');
+
+  // === HOJA 2: TRADES DETALLE ===
+  const tradesHeaders = [
+    'Fecha', 'Sesión', 'Killzone', 'Acción', 'Entry', 'Fill Price',
+    'SL', 'TP1', 'TP2', 'RR TP1', 'RR TP2 Real',
+    'Outcome', 'Result USD', 'Confidence', 'Score',
+    'Sweep Level', 'Sweep Type', 'Sweep Quality', 'Wick %',
+    'HTF Bias', 'HTF Strength', 'BOS Quality', 'Displacement', 'Inducement',
+    'Liq Target Level', 'Liq Target Type', 'ADR %', 'ATR Pips',
+    'Velas Duration', 'SL→BE', 'BE Vela', 'Parcial Cerrado',
+    'PnL Parcial', 'TP1 Vela', 'Gestión', 'News Blocked',
+    'Score Factors', 'Confirmaciones', 'CEO Analysis', 'CEO Recommendation', 'Failure Factors'
+  ];
+  const tradesRows = trades.map(t => [
+    t.date || '', t.session || '', t.killzone || '', t.action || '',
+    t.entry || 0, t.fill_price || 0,
+    t.sl || 0, t.tp1 || 0, t.tp2 || 0,
+    t.rr_tp1 || 0, t.rr_tp2 || 0,
+    t.outcome || '', t.result || 0, t.confidence || 0, t.score || 0,
+    t.sweepLevel || 0, t.sweep_level_type || '', t.sweep_quality || '', t.wick_pct || 0,
+    t.htf_bias || '', t.htf_strength || 0, t.bos_quality || '',
+    t.displacement_strength || '', t.inducement_quality || '',
+    t.liq_obj_level || 0, t.liq_obj_type || '',
+    t.adr_pct || 0, t.atr_pips || 0,
+    t.velas_duration || 0, t.sl_moved_be ? 'SI' : 'NO', t.be_vela || '',
+    t.partial_closed ? 'SI' : 'NO', t.pnl_parcial || 0, t.tp1_vela || '',
+    t.gestion || '', t.news_blocked ? 'SI' : 'NO',
+    t.score_factors || '', t.confirmaciones || '',
+    t.ceo_analysis || '', t.ceo_recommendation || '',
+    t.failure_factors || ''
+  ]);
+
+  const wsTradesData = [tradesHeaders].concat(tradesRows);
+  const wsTrades = XLSX.utils.aoa_to_sheet(wsTradesData);
+
+  // Ajustar anchos de columnas
+  wsTrades['!cols'] = tradesHeaders.map((h, i) => {
+    const widths = [12, 10, 14, 8, 10, 10, 10, 10, 10, 8, 8, 10, 12, 11, 8, 12, 12, 12, 8, 10, 12, 12, 14, 14, 14, 14, 8, 10, 12, 8, 8, 12, 12, 8, 40, 12, 50, 60, 80, 80, 60];
+    return { wch: widths[i] || 15 };
+  });
+  XLSX.utils.book_append_sheet(wb, wsTrades, 'Trades Detalle');
+
+  // === HOJA 3: ESTADÍSTICAS POR KILLZONE ===
+  const killzoneStats = {};
+  trades.forEach(t => {
+    const kz = t.killzone || 'UNKNOWN';
+    if (!killzoneStats[kz]) {
+      killzoneStats[kz] = { total: 0, wins: 0, losses: 0, be: 0, pnl: 0 };
+    }
+    killzoneStats[kz].total++;
+    if (t.outcome === 'TP' || t.outcome === 'TP2') killzoneStats[kz].wins++;
+    else if (t.outcome === 'SL') killzoneStats[kz].losses++;
+    else if (t.outcome === 'BE') killzoneStats[kz].be++;
+    killzoneStats[kz].pnl += (t.result || 0);
+  });
+
+  const kzData = [['Killzone', 'Total Trades', 'Wins', 'Losses', 'BE', 'Win Rate %', 'PnL USD']];
+  Object.keys(killzoneStats).forEach(kz => {
+    const s = killzoneStats[kz];
+    const wr = s.total > 0 ? (s.wins / s.total * 100).toFixed(2) : 0;
+    kzData.push([kz, s.total, s.wins, s.losses, s.be, wr + '%', s.pnl.toFixed(2)]);
+  });
+  const wsKz = XLSX.utils.aoa_to_sheet(kzData);
+  wsKz['!cols'] = [{wch: 15}, {wch: 14}, {wch: 8}, {wch: 8}, {wch: 8}, {wch: 12}, {wch: 12}];
+  XLSX.utils.book_append_sheet(wb, wsKz, 'Stats por Killzone');
+
+  // === HOJA 4: SETUPS QUE FALLARON ===
+  const failedTrades = trades.filter(t => t.outcome === 'SL');
+  const failureCount = {};
+  failedTrades.forEach(t => {
+    const factor = t.failure_factors || 'N/A';
+    failureCount[factor] = (failureCount[factor] || 0) + 1;
+  });
+  const failData = [['Factor de Falla', 'Cantidad', '% del Total SL']];
+  const totalSL = failedTrades.length;
+  Object.keys(failureCount).sort((a, b) => failureCount[b] - failureCount[a]).forEach(f => {
+    const pct = totalSL > 0 ? ((failureCount[f] / totalSL) * 100).toFixed(1) : 0;
+    failData.push([f, failureCount[f], pct + '%']);
+  });
+  const wsFail = XLSX.utils.aoa_to_sheet(failData);
+  wsFail['!cols'] = [{wch: 30}, {wch: 12}, {wch: 14}];
+  XLSX.utils.book_append_sheet(wb, wsFail, 'Análisis de Fallos');
+
+  // Generar archivo
+  XLSX.writeFile(wb, filename + '.xlsx');
+}
+
+function downloadFile(content, filename, mimetype) {
+  const blob = new Blob([content], { type: mimetype });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+let bt_state_lastRun = null;
+
+// ============== CLAUDE CHAT ==============
+let chatHistory = [];
+let chatBusy = false;
+
+function quickQuestion(text) {
+  document.getElementById('chat-input').value = text;
+  sendChatMessage();
+}
+
+function clearChat() {
+  if (!confirm('¿Limpiar conversación con Claude?')) return;
+  chatHistory = [];
+  document.getElementById('chat-messages').innerHTML =
+    '<div style="color:var(--t3); font-style:italic; text-align:center; padding:40px 20px">Conversación limpiada. Escribe tu primera pregunta abajo ↓</div>';
+}
+
+function addChatMessage(role, content, meta) {
+  const container = document.getElementById('chat-messages');
+  if (container.querySelector('div[style*="font-style:italic"]')) {
+    container.innerHTML = '';
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'margin-bottom:14px; padding:10px 12px; border-radius:6px;';
+  if (role === 'user') {
+    wrapper.style.background = 'var(--bg3)';
+    wrapper.style.borderLeft = '3px solid var(--blue)';
+    wrapper.innerHTML = '<div style="font-size:9px;color:var(--blue);letter-spacing:0.1em;margin-bottom:4px;font-weight:600">TÚ</div>' +
+      '<div style="white-space:pre-wrap">' + escapeHtml(content) + '</div>';
+  } else if (role === 'assistant') {
+    wrapper.style.background = 'color-mix(in srgb, var(--bg2) 95%, var(--g) 5%)';
+    wrapper.style.borderLeft = '3px solid var(--g)';
+    const metaHtml = meta ? '<div style="font-size:9px;color:var(--t2);margin-top:8px;border-top:1px solid var(--b);padding-top:6px">' +
+      'Régimen: ' + (meta.regime_type || '--') + ' · Última acción: ' + (meta.last_action || '--') + ' · Precio: ' + (meta.price || '--') + '</div>' : '';
+    wrapper.innerHTML = '<div style="font-size:9px;color:var(--g);letter-spacing:0.1em;margin-bottom:4px;font-weight:600">🧠 CLAUDE</div>' +
+      '<div style="white-space:pre-wrap">' + escapeHtml(content) + '</div>' + metaHtml;
+  } else if (role === 'error') {
+    wrapper.style.background = 'color-mix(in srgb, var(--bg2) 85%, var(--r) 15%)';
+    wrapper.style.borderLeft = '3px solid var(--r)';
+    wrapper.innerHTML = '<div style="font-size:9px;color:var(--r);letter-spacing:0.1em;margin-bottom:4px;font-weight:600">⚠️ ERROR</div>' +
+      '<div>' + escapeHtml(content) + '</div>';
+  }
+  container.appendChild(wrapper);
+  container.scrollTop = container.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+async function sendChatMessage() {
+  if (chatBusy) return;
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (text.length > 1000) {
+    alert('Mensaje muy largo (máx 1000 caracteres)');
+    return;
+  }
+
+  chatBusy = true;
+  const btn = document.getElementById('chat-send-btn');
+  btn.innerHTML = '<span class="spinner"></span>';
+  btn.disabled = true;
+
+  addChatMessage('user', text);
+  input.value = '';
+
+  // Indicador "Claude está pensando..."
+  const container = document.getElementById('chat-messages');
+  const typing = document.createElement('div');
+  typing.id = 'chat-typing';
+  typing.style.cssText = 'margin-bottom:14px; padding:10px 12px; color:var(--t2); font-style:italic; font-size:11px';
+  typing.innerHTML = '🧠 <span class="spinner"></span> Claude está analizando el mercado...';
+  container.appendChild(typing);
+  container.scrollTop = container.scrollHeight;
+
+  try {
+    const r = await fetch(API + '/claude-conversation', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: text, history: chatHistory.slice(-6)})
+    });
+
+    document.getElementById('chat-typing')?.remove();
+
+    if (!r.ok) {
+      addChatMessage('error', 'Error HTTP ' + r.status + '. Revisa que el backend esté online.');
+      return;
+    }
+
+    const data = await r.json();
+    if (data.error) {
+      addChatMessage('error', data.error);
+      return;
+    }
+    if (!data.response) {
+      addChatMessage('error', 'Claude no devolvió respuesta. Intenta de nuevo.');
+      return;
+    }
+
+    addChatMessage('assistant', data.response, data.context_used);
+    chatHistory.push({role: 'user', content: text});
+    chatHistory.push({role: 'assistant', content: data.response});
+    if (chatHistory.length > 12) {
+      chatHistory = chatHistory.slice(-12);
+    }
+  } catch (e) {
+    document.getElementById('chat-typing')?.remove();
+    addChatMessage('error', 'Error de red: ' + e.message);
+  } finally {
+    chatBusy = false;
+    btn.innerHTML = '📤 Enviar';
+    btn.disabled = false;
+    input.focus();
+  }
+}
+
+// Enter para enviar (Shift+Enter para nueva línea)
+document.getElementById('chat-input')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChatMessage();
+  }
+});
+
+// ============== RENDER CLAUDE TAB ==============
+async function loadClaudeHistory() {
+  try {
+    const data = await fetchJSON('/claude-analysis-history?limit=30');
+
+    // Si el endpoint no existe o falla, mostrar mensaje amigable
+    if (!data) {
+      document.getElementById('claude-narrative-history').innerHTML =
+        '<div class="empty" style="line-height:1.7">Aún no hay análisis cognitivos.<br><br>' +
+        'Claude solo analiza cuando hay un setup BUY/SELL válido (con sweep institucional detectado).<br>' +
+        'Como hoy el mercado está en régimen CHOPPY, todas las decisiones fueron HOLD técnico,<br>' +
+        'y por eso Claude no ha sido invocado todavía.</div>';
+      document.getElementById('trends-summary').innerHTML =
+        '<div class="empty">Sin análisis cognitivos acumulados<br>Necesitas setups BUY/SELL válidos para generar tendencias</div>';
+      document.getElementById('patterns-summary').innerHTML =
+        '<div class="empty">Sin patrones detectables aún</div>';
+      return;
+    }
+
+    const history = data.history || [];
+
+    if (history.length === 0) {
+      document.getElementById('claude-narrative-history').innerHTML =
+        '<div class="empty" style="line-height:1.7">Aún no hay análisis cognitivos.<br><br>' +
+        'Claude solo analiza cuando hay un setup BUY/SELL válido (con sweep institucional detectado).<br>' +
+        'Como hoy el mercado está en régimen CHOPPY, todas las decisiones fueron HOLD técnico,<br>' +
+        'y por eso Claude no ha sido invocado todavía.<br><br>' +
+        '<span style="color:var(--gold)">💡 Tip: Puedes preguntarle directamente a Claude en el chat de arriba.</span></div>';
+      document.getElementById('trends-summary').innerHTML =
+        '<div class="empty">Sin análisis cognitivos acumulados<br>Necesitas setups BUY/SELL válidos</div>';
+      document.getElementById('patterns-summary').innerHTML =
+        '<div class="empty">Sin patrones detectables aún</div>';
+      return;
+    }
+
+    // Última narrativa destacada
+    const last = history[0];
+    document.getElementById('claude-last-ts').textContent =
+      last.timestamp_et ? new Date(last.timestamp_et).toLocaleString() : '--';
+    document.getElementById('claude-last-narrative').textContent =
+      last.narrative ? '"' + last.narrative + '"' : 'Sin narrativa';
+    document.getElementById('claude-last-narrative').classList.remove('empty');
+    document.getElementById('claude-last-action').textContent = last.technical_action || '--';
+    document.getElementById('claude-last-score').textContent = last.technical_score ? last.technical_score.toFixed(0) + '/100' : '--';
+    document.getElementById('claude-last-veto').textContent = last.cognitive_veto ? 'SÍ' : 'NO';
+    document.getElementById('claude-last-veto').style.color = last.cognitive_veto ? 'var(--r)' : 'var(--g)';
+    document.getElementById('claude-last-mult').textContent = last.cognitive_multiplier ? last.cognitive_multiplier.toFixed(2) + 'x' : '--';
+
+    const regimeBadge = document.getElementById('claude-last-regime');
+    regimeBadge.textContent = (last.regime_assessment || 'Sin regime').toUpperCase().slice(0, 30);
+
+    // Histórico expandible
+    document.getElementById('claude-narrative-history').innerHTML = history.map(h => {
+      const veto = h.cognitive_veto;
+      const time = h.timestamp_et ? new Date(h.timestamp_et).toLocaleString() : '--';
+      const borderColor = veto ? 'var(--gold)' : 'var(--g)';
+      return '<div style="padding:10px 12px; margin-bottom:8px; background:var(--bg2); border-left:3px solid ' + borderColor + '; border-radius:4px">' +
+        '<div style="display:flex; gap:10px; align-items:baseline; margin-bottom:6px; flex-wrap:wrap">' +
+        '<span style="font-family:\'IBM Plex Mono\'; font-size:10px; color:var(--t2)">' + time + '</span>' +
+        '<span style="color:' + (h.technical_action === 'BUY' ? 'var(--g)' : h.technical_action === 'SELL' ? 'var(--r)' : 'var(--gold)') + '; font-weight:700; font-family:\'IBM Plex Mono\'; font-size:10px">' + (h.technical_action || '--') + '</span>' +
+        '<span style="font-size:10px; color:var(--t2)">Score: <strong style="color:var(--t)">' + (h.technical_score || 0).toFixed(0) + '</strong></span>' +
+        (veto ? '<span style="font-size:10px; color:var(--gold)">⚠️ VETADO</span>' : '<span style="font-size:10px; color:var(--g)">✓ VALIDADO</span>') +
+        (h.cognitive_multiplier ? '<span style="font-size:10px; color:var(--t2)">Mult: <strong style="color:var(--gold)">' + h.cognitive_multiplier.toFixed(2) + 'x</strong></span>' : '') +
+        '</div>' +
+        '<div style="font-size:11px; color:var(--t); font-style:italic; line-height:1.6; font-family:\'IBM Plex Mono\'">"' + (h.narrative || 'Sin narrativa') + '"</div>' +
+        (h.regime_assessment ? '<div style="font-size:10px; color:var(--blue); margin-top:6px">📊 ' + h.regime_assessment + '</div>' : '') +
+        '</div>';
+    }).join('');
+
+    // Tendencias y patrones
+    renderTrendsAndPatterns(history);
+  } catch (e) {
+    console.error('Error en loadClaudeHistory:', e);
+    document.getElementById('claude-narrative-history').innerHTML =
+      '<div class="empty">No se pudo conectar al backend. Verifica que esté online.</div>';
+  }
+}
+
+function renderTrendsAndPatterns(history) {
+  if (!history || history.length === 0) {
+    document.getElementById('trends-summary').innerHTML = '<div class="empty">Sin datos suficientes</div>';
+    document.getElementById('patterns-summary').innerHTML = '<div class="empty">Sin datos suficientes</div>';
+    return;
+  }
+
+  // Tendencias: regímenes vistos en las últimas narrativas
+  const regimeCount = {};
+  const actionCount = {};
+  let vetoCount = 0;
+  let validCount = 0;
+  const recent7d = history.filter(h => {
+    if (!h.timestamp_utc) return false;
+    const d = new Date(h.timestamp_utc);
+    return (Date.now() - d.getTime()) < (7 * 24 * 60 * 60 * 1000);
+  });
+
+  recent7d.forEach(h => {
+    const ra = (h.regime_assessment || 'desconocido').toLowerCase();
+    regimeCount[ra] = (regimeCount[ra] || 0) + 1;
+    const a = h.technical_action || 'HOLD';
+    actionCount[a] = (actionCount[a] || 0) + 1;
+    if (h.cognitive_veto) vetoCount++;
+    else validCount++;
+  });
+
+  let trendsHtml = '<div class="kv"><span class="k">Análisis con narrativa (7d)</span><span class="v">' + recent7d.length + '</span></div>';
+  trendsHtml += '<div class="kv"><span class="k">Validados por Claude</span><span class="v g">' + validCount + '</span></div>';
+  trendsHtml += '<div class="kv"><span class="k">Vetados por Claude</span><span class="v gold">' + vetoCount + '</span></div>';
+
+  if (Object.keys(regimeCount).length > 0) {
+    trendsHtml += '<div class="card-label" style="margin-top:12px">RÉGIMENES OBSERVADOS</div>';
+    Object.keys(regimeCount).sort((a,b) => regimeCount[b] - regimeCount[a]).slice(0, 5).forEach(r => {
+      trendsHtml += '<div class="kv"><span class="k">' + r.slice(0, 50) + '</span><span class="v">' + regimeCount[r] + 'x</span></div>';
+    });
+  }
+  document.getElementById('trends-summary').innerHTML = trendsHtml;
+
+  // Patrones: distribución de acciones técnicas
+  let patternsHtml = '';
+  if (Object.keys(actionCount).length > 0) {
+    patternsHtml += '<div class="card-label">ACCIONES TÉCNICAS (7d)</div>';
+    Object.keys(actionCount).forEach(a => {
+      const color = a === 'BUY' ? 'g' : a === 'SELL' ? 'r' : 'gold';
+      patternsHtml += '<div class="kv"><span class="k">' + a + '</span><span class="v ' + color + '">' + actionCount[a] + 'x</span></div>';
+    });
+  }
+  const validationRate = recent7d.length > 0 ? (validCount / recent7d.length * 100).toFixed(0) : 0;
+  patternsHtml += '<div class="card-label" style="margin-top:12px">CALIDAD COGNITIVA</div>';
+  patternsHtml += '<div class="kv"><span class="k">Tasa de validación</span><span class="v g">' + validationRate + '%</span></div>';
+  patternsHtml += '<div class="kv"><span class="k">Tasa de veto</span><span class="v gold">' + (100 - validationRate) + '%</span></div>';
+
+  if (recent7d.length < 5) {
+    patternsHtml += '<div style="font-size:10px; color:var(--t3); margin-top:10px; font-style:italic">⚠️ Pocos datos. Los patrones serán más confiables después de 20+ análisis.</div>';
+  }
+  document.getElementById('patterns-summary').innerHTML = patternsHtml;
+}
+
+refreshAll();
+setInterval(refreshAll, 60000);
+</script>
+</body>
+</html>
