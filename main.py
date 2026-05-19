@@ -463,7 +463,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed2')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -2928,7 +2928,7 @@ async def candles_endpoint(granularity: str = 'H1', count: int = 100,
         return {'ok': False, 'error': str(e)}
 
 
-@app.post('/trigger-analysis')
+@app.api_route('/trigger-analysis', methods=['GET', 'POST'])
 async def trigger_analysis_endpoint():
     try:
         results = await run_analysis(auto_execute=AUTO_EXECUTE)
@@ -2942,7 +2942,7 @@ async def trigger_analysis_endpoint():
         return {'ok': False, 'error': str(e)}
 
 
-@app.post('/run-backtesting')
+@app.api_route('/run-backtesting', methods=['GET', 'POST'])
 async def run_backtesting_endpoint(pair: Optional[str] = None):
     if bt_state['running']:
         return {'ok': False, 'error': 'Backtest ya en curso'}
@@ -3039,7 +3039,7 @@ async def regime_endpoint():
     }
 
 
-@app.post('/notify/test')
+@app.api_route('/notify/test', methods=['GET', 'POST'])
 async def notify_test_endpoint():
     body = '<div class="card"><div class="value">Email de prueba. TPDCM-IA operativo.</div></div>'
     sent = await send_email('TPDCM-IA · Test Notification', _email_wrapper('Test', body))
@@ -3047,14 +3047,14 @@ async def notify_test_endpoint():
             'configured': bool(RESEND_API_KEY)}
 
 
-@app.post('/notify/pre-london-report')
+@app.api_route('/notify/pre-london-report', methods=['GET', 'POST'])
 async def notify_pre_london_endpoint():
     subj, html = build_pre_london_report()
     sent = await send_email(subj, html)
     return {'ok': sent, 'subject': subj}
 
 
-@app.post('/notify/ny-open-report')
+@app.api_route('/notify/ny-open-report', methods=['GET', 'POST'])
 async def notify_ny_open_endpoint():
     subj, html = build_ny_open_report()
     sent = await send_email(subj, html)
@@ -3095,7 +3095,7 @@ async def weekly_stats_endpoint():
     return stats or {'message': 'Sin actividad esta semana'}
 
 
-@app.post('/notify/weekly-stats-now')
+@app.api_route('/notify/weekly-stats-now', methods=['GET', 'POST'])
 async def notify_weekly_stats_endpoint():
     subj, html = build_weekly_stats_report()
     sent = await send_email(subj, html)
@@ -3143,7 +3143,7 @@ async def caution_days_stats_endpoint():
     }
 
 
-@app.post('/healthcheck-monitor')
+@app.api_route('/healthcheck-monitor', methods=['GET', 'POST'])
 async def healthcheck_monitor_endpoint():
     await healthcheck_monitor()
     return {'ok': True, 'message': 'Healthcheck ejecutado'}
