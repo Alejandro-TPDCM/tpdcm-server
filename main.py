@@ -52,6 +52,7 @@ from pathlib import Path
 import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -469,7 +470,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed2')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed4')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -2902,14 +2903,43 @@ class ChatMessageIn(BaseModel):
     history: List[dict] = Field(default_factory=list, max_length=20)
 
 
-@app.get('/')
-async def root():
+@app.get('/', response_class=HTMLResponse)
+async def serve_dashboard():
+    # v2.6.0-beta-fixed4: sirve el dashboard HTML directamente desde Railway.
+    # Si el archivo no existe, devuelve un mensaje informativo.
+    index_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'index.html')
+    try:
+        with open(index_path, 'r', encoding='utf-8') as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        fallback = """<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>TPDCM-IA</title>
+<style>body{background:#070a0d;color:#c4d8cc;font-family:monospace;padding:40px;line-height:1.6}
+h1{color:#00e87a}a{color:#4a9eff}</style></head>
+<body><h1>TPDCM-IA Backend Running</h1>
+<p>El backend funciona, pero el dashboard (index.html) no se encontro en el repo.</p>
+<p>Endpoints disponibles:</p>
+<ul>
+<li><a href="/api">/api</a> - Estado del sistema (JSON)</li>
+<li><a href="/health">/health</a> - Health check</li>
+<li><a href="/backtesting">/backtesting</a> - Resultados ultimo backtest</li>
+<li><a href="/dashboard">/dashboard</a> - Dashboard JSON</li>
+<li><a href="/pairs">/pairs</a> - Estado de pares</li>
+</ul></body></html>"""
+        return HTMLResponse(content=fallback)
+
+
+@app.get('/api')
+@app.get('/status')
+async def api_status():
+    # v2.6.0-beta-fixed4: el JSON de estado se mueve aqui (antes estaba en /)
     return {
-        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed3',
+        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed4',
         'now_et': now_et().isoformat(),
         'session_active': is_session(),
         'auto_execute': AUTO_EXECUTE,
         'active_pairs': get_active_pairs(),
+        'dashboard_url': '/',
     }
 
 
