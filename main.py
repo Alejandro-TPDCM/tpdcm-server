@@ -102,6 +102,9 @@ PAIR_CONFIG = {
         'slippage_pips': 0.3,
         'pip_value':     0.0001,
         'tier':          'A',
+        # v2.6.0-beta-fixed3: filtros adicionales (vacios = sin filtros extra)
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
     },
     'GBP_USD': {
         'display':       'GBP/USD',
@@ -116,6 +119,9 @@ PAIR_CONFIG = {
         'slippage_pips': 0.5,
         'pip_value':     0.0001,
         'tier':          'B',
+        # v2.6.0-beta-fixed3: filtros especificos GBP (basados en backtest 24 trades)
+        'extra_caution_days':    ['Tuesday'],         # martes WR 25% PnL -$4,388
+        'block_regimes_always':  ['ranging'],          # ranging 0% WR PnL -$3,950
     },
 }
 
@@ -1904,6 +1910,9 @@ async def execute_signal(decision, pair=None):
                 'time': now_et().strftime('%H:%M ET'),
                 'day_of_week': now_et().strftime('%A'),
                 'month': now_et().strftime('%B %Y'),
+                'pair': pair,                          # v2.6.0-beta-fixed3
+                'pair_id': pair,                       # v2.6.0-beta-fixed3
+                'pair_display': pair_cfg.get('display', pair),
                 'action': decision['action'],
                 'entry_price': float(fill.get('price', 0)),
                 'sl': sl, 'tp1': tp, 'tp2': decision.get('tp2', 0),
@@ -2279,9 +2288,25 @@ async def run_backtesting_pair(pair):
                 cnt['score'] += 1
                 continue
 
-            # DAYS OF CAUTION FILTER (lunes/viernes)
+            # ═══ FILTROS ESPECIFICOS DEL PAR (v2.6.0-beta-fixed3) ═══
+            # Basados en backtest historico GBP/USD (24 trades, +Tuesday era WR 25%)
+            pair_extra_caution_days = pair_cfg.get('extra_caution_days', [])
+            pair_blocked_regimes = pair_cfg.get('block_regimes_always', [])
+
+            # Bloquear regimes especificos siempre (no solo en caution days)
+            if pair_blocked_regimes:
+                regime_t = ict.get('regime', {}).get('type', '')
+                if regime_t in pair_blocked_regimes:
+                    cnt['pair_blocked_regime'] += 1
+                    continue
+
+            # Days of caution adicionales por par
+            day_name_curr = cdt.strftime('%A')
+            is_pair_caution = day_name_curr in pair_extra_caution_days
+
+            # DAYS OF CAUTION FILTER (lunes/viernes globales O caution day del par)
             risk_mult = 1.0
-            is_caution = c_dow in (0, 4)
+            is_caution = c_dow in (0, 4) or is_pair_caution
             if is_caution:
                 if score.get('total', 0) < CAUTION_MIN_SCORE:
                     cnt['caution_score'] += 1
@@ -2417,10 +2442,22 @@ async def run_backtesting_pair(pair):
 
     pair_summary = {'pair': display, 'pair_id': pair, 'total_trades': 0}
     if all_trades:
-        wins = [t for t in all_trades if t['result'] > 0]
+        # v2.6.0-beta-fixed3: BUG FIX - clasificacion correcta por outcome
+        # Antes: wins=result>0, BEs contados por outcome → algunos double-counted
+        # Ahora: clasificacion mutuamente exclusiva por outcome real
+        wins_pure = [t for t in all_trades if t['outcome'] in ('TP', 'TP2') and t['result'] > 0]
+        losses = [t for t in all_trades if t['outcome'] == 'SL' and t['result'] < 0]
         bes = [t for t in all_trades if t['outcome'] == 'BE']
+        timeouts_pos = [t for t in all_trades if t['outcome'] == 'TIMEOUT' and t['result'] > 0]
+        timeouts_neg = [t for t in all_trades if t['outcome'] == 'TIMEOUT' and t['result'] <= 0]
+        # WR considera "ganadores" a TP/TP2 + BEs con parcial cobrado (siguen sumando $)
+        bes_positive = [t for t in bes if t['result'] > 0]
+        bes_zero = [t for t in bes if t['result'] <= 0]
+        # Wins efectivos para WR: cualquier trade con result > 0
+        total_winners = len(wins_pure) + len(bes_positive) + len(timeouts_pos)
+        total_losers = len(losses) + len(timeouts_neg)
         pnl = sum(t['result'] for t in all_trades)
-        wr = len(wins) / len(all_trades)
+        wr = total_winners / len(all_trades) if all_trades else 0
         gw = sum(t['result'] for t in all_trades if t['result'] > 0)
         gl = abs(sum(t['result'] for t in all_trades if t['result'] < 0))
         pf = round(gw / gl, 2) if gl > 0 else 0
@@ -2440,9 +2477,9 @@ async def run_backtesting_pair(pair):
             'pair': display,
             'pair_id': pair,
             'total_trades': len(all_trades),
-            'wins': len(wins),
-            'losses': len(all_trades) - len(wins) - len(bes),
-            'breakeven': len(bes),
+            'wins': total_winners,
+            'losses': total_losers,
+            'breakeven': len(bes_zero),
             'win_rate': round(wr, 4),
             'total_pnl': round(pnl, 2),
             'profit_factor': pf,
@@ -2458,6 +2495,16 @@ async def run_backtesting_pair(pair):
                 cnt.get('caution_regime', 0),
                 cnt.get('caution_anomaly', 0),
             ]),
+            # v2.6.0-beta-fixed3: detalle ampliado de outcomes
+            'breakdown': {
+                'tp_pure':       len(wins_pure),
+                'sl_pure':       len(losses),
+                'be_positive':   len(bes_positive),
+                'be_zero':       len(bes_zero),
+                'timeout_pos':   len(timeouts_pos),
+                'timeout_neg':   len(timeouts_neg),
+            },
+            'pair_specific_vetos': cnt.get('pair_blocked_regime', 0),
         }
 
     return {'trades': all_trades, 'summary': pair_summary}
@@ -2858,7 +2905,7 @@ class ChatMessageIn(BaseModel):
 @app.get('/')
 async def root():
     return {
-        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed',
+        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed3',
         'now_et': now_et().isoformat(),
         'session_active': is_session(),
         'auto_execute': AUTO_EXECUTE,
@@ -2883,7 +2930,17 @@ async def health():
 
 
 @app.get('/dashboard')
-async def dashboard():
+async def dashboard(pair: Optional[str] = None):
+    # v2.6.0-beta-fixed3: si se pasa pair, devuelve datos de ese par especifico
+    # usando pair_state[pair]. Si no, mantiene comportamiento legacy (EUR/USD).
+    if pair and pair in PAIRS:
+        p_st = pair_state.get(pair, {})
+        last_an = p_st.get('last_analysis')
+        last_dc = p_st.get('last_decision')
+    else:
+        last_an = state.get('last_analysis')
+        last_dc = state.get('last_decision')
+
     return {
         'state': {
             'balance': state.get('balance', 0),
@@ -2899,9 +2956,10 @@ async def dashboard():
             'is_caution_day': is_caution_day(),
             'edge_score': memory.get('edge_score', 100),
             'active_pairs': get_active_pairs(),
+            'current_pair': pair if pair else 'EUR_USD',
         },
-        'last_analysis': state.get('last_analysis'),
-        'last_decision': state.get('last_decision'),
+        'last_analysis': last_an,
+        'last_decision': last_dc,
         'open_trades_count': len(state.get('open_trades', [])),
         'cognitive_disabled': cognitive_is_disabled(),
     }
@@ -2971,9 +3029,13 @@ async def signal_history_endpoint(limit: int = 100, pair: Optional[str] = None):
 
 
 @app.get('/live-trades')
-async def live_trades_endpoint(limit: int = 100):
+async def live_trades_endpoint(limit: int = 100, pair: Optional[str] = None):
+    # v2.6.0-beta-fixed3: filtro opcional por pair
     live = state.get('live_trades', [])
-    return {'count': len(live), 'trades': live[-limit:]}
+    if pair:
+        live = [t for t in live
+                if t.get('pair') == pair or t.get('pair_id') == pair]
+    return {'count': len(live), 'trades': live[-limit:], 'pair_filter': pair}
 
 
 @app.get('/audit/decisions')
@@ -3029,13 +3091,25 @@ async def pairs_endpoint():
 
 
 @app.get('/regime')
-async def regime_endpoint():
-    last = state.get('last_analysis', {}).get('ict', {})
+async def regime_endpoint(pair: Optional[str] = None):
+    # v2.6.0-beta-fixed3: si se pasa pair, usa pair_state[pair]
+    if pair and pair in PAIRS:
+        p_st = pair_state.get(pair, {})
+        last_an = p_st.get('last_analysis', {}) or {}
+        last = last_an.get('ict', {})
+        price = last_an.get('price', 0)
+        ts = last_an.get('ts')
+    else:
+        last_an = state.get('last_analysis', {}) or {}
+        last = last_an.get('ict', {})
+        price = last_an.get('price', 0)
+        ts = state.get('last_update')
     return {
+        'pair': pair or 'EUR_USD',
         'regime': last.get('regime', {}),
         'anomalies': last.get('anomalies', {}),
-        'price': state.get('last_analysis', {}).get('price', 0),
-        'timestamp': state.get('last_update'),
+        'price': price,
+        'timestamp': ts,
     }
 
 
