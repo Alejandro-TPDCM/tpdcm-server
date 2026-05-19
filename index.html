@@ -1085,10 +1085,10 @@ body {
       <div style="overflow-x:auto">
         <table class="tbl">
           <thead><tr>
-            <th>Fecha</th><th>Killzone</th><th>Acción</th><th>Entry</th>
+            <th>Fecha</th><th>Par</th><th>Killzone</th><th>Acción</th><th>Entry</th>
             <th>SL</th><th>TP1/TP2</th><th>Outcome</th><th>P&amp;L</th><th>RR</th>
           </tr></thead>
-          <tbody id="bt-rows"><tr><td colspan="9" class="empty">Aún no se ha ejecutado backtesting</td></tr></tbody>
+          <tbody id="bt-rows"><tr><td colspan="10" class="empty">Aún no se ha ejecutado backtesting</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -1525,19 +1525,27 @@ function renderBacktest(bt) {
   $('bt-status').textContent = bt.running ? '⏳ Ejecutando...' : (bt.last_run ? '✓ Último: ' + new Date(bt.last_run).toLocaleString() : '');
 
   if (trades.length === 0) {
-    $('bt-rows').innerHTML = '<tr><td colspan="9" class="empty">Aún no se ha ejecutado backtesting</td></tr>';
+    $('bt-rows').innerHTML = '<tr><td colspan="10" class="empty">Aún no se ha ejecutado backtesting</td></tr>';
   } else {
     $('bt-rows').innerHTML = trades.slice(0, 50).map(t => {
+      // v2.6.0-fixed4: campos correctos del backend + columna par
+      const pairLabel = t.pair || t.pair_id || '--';
+      const pairColor = pairLabel.includes('EUR') ? 'var(--green)' :
+                       pairLabel.includes('GBP') ? 'var(--gold)' : 'var(--t2)';
+      const entry = t.entry_price || t.fill_price || 0;
+      const rr1 = t.rr_tp1 || 0;
+      const rr2 = t.rr_tp2_real || t.rr_tp2 || 0;
       return '<tr>' +
         '<td>' + (t.date || '--') + '</td>' +
+        '<td style="color:' + pairColor + ';font-weight:600">' + pairLabel + '</td>' +
         '<td>' + (t.killzone || '--') + '</td>' +
         '<td class="col-action ' + t.action + '">' + t.action + '</td>' +
-        '<td>' + fmt(t.entry) + '</td>' +
+        '<td>' + (entry ? fmt(entry) : '--') + '</td>' +
         '<td>' + fmt(t.sl) + '</td>' +
         '<td>' + fmt(t.tp1) + ' / ' + fmt(t.tp2) + '</td>' +
         '<td>' + t.outcome + '</td>' +
         '<td class="col-pnl ' + (t.result >= 0 ? 'pos' : 'neg') + '">' + fmtUsd(t.result) + '</td>' +
-        '<td>' + t.rr_tp2 + '</td>' +
+        '<td>' + rr1.toFixed(1) + ' / ' + rr2.toFixed(2) + '</td>' +
         '</tr>';
     }).join('');
   }
@@ -1764,7 +1772,7 @@ function exportToPDF(trades, summary, filename) {
 function exportToCSV(trades, summary, filename) {
   // Headers
   const headers = [
-    'Fecha', 'Sesion', 'Killzone', 'Accion', 'Entry', 'Fill_Price',
+    'Fecha', 'Par', 'Sesion', 'Killzone', 'Accion', 'Entry', 'Fill_Price',
     'SL', 'TP1', 'TP2', 'RR_TP1', 'RR_TP2_Real',
     'Outcome', 'Result_USD', 'Confidence', 'Score',
     'Sweep_Level', 'Sweep_Type', 'Sweep_Quality', 'Wick_Pct',
@@ -1776,12 +1784,14 @@ function exportToCSV(trades, summary, filename) {
   ];
 
   const rows = trades.map(t => [
-    t.date || '', t.session || '', t.killzone || '', t.action || '',
-    t.entry || '', t.fill_price || '',
+    t.date || '', t.pair || t.pair_id || '',
+    t.session || '', t.killzone || '', t.action || '',
+    t.entry_price || t.entry || '', t.fill_price || '',
     t.sl || '', t.tp1 || '', t.tp2 || '',
-    t.rr_tp1 || '', t.rr_tp2 || '',
+    t.rr_tp1 || '', t.rr_tp2_real || t.rr_tp2 || '',
     t.outcome || '', t.result || '', t.confidence || '', t.score || '',
-    t.sweepLevel || '', t.sweep_level_type || '', t.sweep_quality || '', t.wick_pct || '',
+    t.sweep_level || t.sweepLevel || '', t.sweep_type || t.sweep_level_type || '',
+    t.sweep_quality || '', t.wick_pct || '',
     t.htf_bias || '', t.htf_strength || '', t.bos_quality || '',
     t.displacement_strength || '', t.inducement_quality || '',
     t.liq_obj_level || '', t.liq_obj_type || '',
@@ -1882,7 +1892,7 @@ function exportToExcel(trades, summary, filename) {
 
   // === HOJA 2: TRADES DETALLE ===
   const tradesHeaders = [
-    'Fecha', 'Sesión', 'Killzone', 'Acción', 'Entry', 'Fill Price',
+    'Fecha', 'Par', 'Sesión', 'Killzone', 'Acción', 'Entry', 'Fill Price',
     'SL', 'TP1', 'TP2', 'RR TP1', 'RR TP2 Real',
     'Outcome', 'Result USD', 'Confidence', 'Score',
     'Sweep Level', 'Sweep Type', 'Sweep Quality', 'Wick %',
@@ -1893,12 +1903,14 @@ function exportToExcel(trades, summary, filename) {
     'Score Factors', 'Confirmaciones', 'CEO Analysis', 'CEO Recommendation', 'Failure Factors'
   ];
   const tradesRows = trades.map(t => [
-    t.date || '', t.session || '', t.killzone || '', t.action || '',
-    t.entry || 0, t.fill_price || 0,
+    t.date || '', t.pair || t.pair_id || '',
+    t.session || '', t.killzone || '', t.action || '',
+    t.entry_price || t.entry || 0, t.fill_price || 0,
     t.sl || 0, t.tp1 || 0, t.tp2 || 0,
-    t.rr_tp1 || 0, t.rr_tp2 || 0,
+    t.rr_tp1 || 0, t.rr_tp2_real || t.rr_tp2 || 0,
     t.outcome || '', t.result || 0, t.confidence || 0, t.score || 0,
-    t.sweepLevel || 0, t.sweep_level_type || '', t.sweep_quality || '', t.wick_pct || 0,
+    t.sweep_level || t.sweepLevel || 0, t.sweep_type || t.sweep_level_type || '',
+    t.sweep_quality || '', t.wick_pct || 0,
     t.htf_bias || '', t.htf_strength || 0, t.bos_quality || '',
     t.displacement_strength || '', t.inducement_quality || '',
     t.liq_obj_level || 0, t.liq_obj_type || '',
