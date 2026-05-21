@@ -126,7 +126,7 @@ PAIR_CONFIG = {
         'block_regimes_always':  ['ranging'],          # ranging 0% WR PnL -$3,950
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed7: FASE 1 - 6 pares nuevos de 4-decimales
+    # v2.6.0-beta-fixed8: FASE 1 - 6 pares nuevos de 4-decimales
     # Todos con enabled=False hasta validar con backtest individual.
     # Misma logica de pips que EUR/USD (pip_value 0.0001).
     # ═══════════════════════════════════════════════════════════════════
@@ -145,7 +145,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed7: AUD solo opera London (NY pierde -$5,832)
+        # v2.6.0-beta-fixed8: AUD solo opera London (NY pierde -$5,832)
         # Backtest London-only: WR 56%, PF 2.72, +$9,066
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -164,7 +164,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed7: CAD solo opera London (NY pierde -$1,365)
+        # v2.6.0-beta-fixed8: CAD solo opera London (NY pierde -$1,365)
         # Backtest London-only: WR 80%, PF 6.59, +$7,363
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -233,7 +233,7 @@ PAIR_CONFIG = {
         'block_regimes_always':  [],
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed7: FASE 2 - pares volatiles (JPY + oro)
+    # v2.6.0-beta-fixed8: FASE 2 - pares volatiles (JPY + oro)
     # AHORA POSIBLES gracias al refactor de pip_value.
     # JPY: pip_value 0.01 (2 decimales) | XAU: pip_value 0.1
     # Todos enabled=False hasta validar con backtest individual.
@@ -256,7 +256,7 @@ PAIR_CONFIG = {
     },
     'GBP_JPY': {
         'display':       'GBP/JPY',
-        'enabled':       False,
+        'enabled':       True,
         'min_score':     62,
         'min_score_wed': 68,
         'risk_pct':      float(os.environ.get('RISK_PCT_GBPJPY', '0.8')),
@@ -269,6 +269,9 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
+        # v2.6.0-beta-fixed8: GBP/JPY solo opera London (NY pierde -$2,085)
+        # Backtest London-only: WR 62%, PF 2.52, +$6,009 (8 trades en 16 meses)
+        'allowed_killzones':     ['LONDON_OPEN'],
     },
     'EUR_JPY': {
         'display':       'EUR/JPY',
@@ -336,7 +339,7 @@ CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']
 
 MAX_TRADES_PER_DAY        = 2
 SECOND_TRADE_RISK_MULT    = 0.7
-MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed7: 3->2 (ajuste fino, mas trades)
+MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed8: 3->2 (ajuste fino, mas trades)
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -648,7 +651,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed7')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed8')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -1946,7 +1949,7 @@ async def run_analysis_pair(pair, auto_execute=False, all_news=None):
             state['history'] = state['history'][-2000:]
         storage_write_json('legacy/history.json', state['history'][-2000:])
 
-    # v2.6.0-beta-fixed7: filtro de killzones permitidas por par (en vivo)
+    # v2.6.0-beta-fixed8: filtro de killzones permitidas por par (en vivo)
     # AUD/CAD solo operan en LONDON_OPEN (NY pierde dinero)
     pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
     current_kz = ict.get('killzone', '')
@@ -2431,7 +2434,7 @@ async def run_backtesting_pair(pair):
                     cnt['cooldown'] += 1
                     continue
 
-            if i - last_idx < 4:   # v2.6.0-beta-fixed7: 5->4 velas (ajuste fino)
+            if i - last_idx < 4:   # v2.6.0-beta-fixed8: 5->4 velas (ajuste fino)
                 cnt['cooldown'] += 1
                 continue
 
@@ -2492,7 +2495,7 @@ async def run_backtesting_pair(pair):
                     cnt['pair_blocked_regime'] += 1
                     continue
 
-            # v2.6.0-beta-fixed7: solo operar en killzones permitidas (si se define)
+            # v2.6.0-beta-fixed8: solo operar en killzones permitidas (si se define)
             # AUD/CAD solo en LONDON_OPEN (NY pierde dinero historicamente)
             pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
             if pair_allowed_kz and kill not in pair_allowed_kz:
@@ -3135,7 +3138,7 @@ h1{color:#00e87a}a{color:#4a9eff}</style></head>
 async def api_status():
     # v2.6.0-beta-fixed4: el JSON de estado se mueve aqui (antes estaba en /)
     return {
-        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed7',
+        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed8',
         'now_et': now_et().isoformat(),
         'session_active': is_session(),
         'auto_execute': AUTO_EXECUTE,
