@@ -615,7 +615,7 @@ body {
   margin-bottom: 14px;
 }
 .pf-card {
-  background: var(--card);
+  background: var(--bg2);
   border: 1px solid var(--bg3);
   border-left: 3px solid var(--pf-accent, var(--t2));
   border-radius: 6px;
@@ -630,14 +630,14 @@ body {
   box-shadow: 0 6px 18px var(--shadow);
 }
 .pf-card.active {
-  border-color: var(--pf-accent, var(--green));
-  box-shadow: 0 0 0 1px var(--pf-accent, var(--green)) inset;
+  border-color: var(--pf-accent, var(--g));
+  box-shadow: 0 0 0 1px var(--pf-accent, var(--g)) inset;
 }
 .pf-card-name {
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.05em;
-  color: var(--pf-accent, var(--t1));
+  color: var(--pf-accent, var(--t));
   margin-bottom: 2px;
 }
 .pf-card-session {
@@ -654,12 +654,12 @@ body {
   font-size: 10px;
 }
 .pf-card-stat { text-align: center; flex: 1; }
-.pf-card-stat .val { display: block; font-size: 14px; font-weight: 700; color: var(--t1); }
+.pf-card-stat .val { display: block; font-size: 14px; font-weight: 700; color: var(--t); }
 .pf-card-stat .lbl { display: block; font-size: 8px; color: var(--t2); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 1px; }
 .pf-card-dot {
   position: absolute; top: 10px; right: 10px;
   width: 7px; height: 7px; border-radius: 50%;
-  background: var(--green); box-shadow: 0 0 6px var(--green);
+  background: var(--g); box-shadow: 0 0 6px var(--g);
 }
 .pf-card.all-card { border-left-color: var(--gold); }
 .pf-card.all-card .pf-card-name { color: var(--gold); }
@@ -675,7 +675,7 @@ body {
   border-radius: 4px;
   white-space: nowrap;
 }
-.sig-senal     { background: rgba(54,224,122,0.18); color: var(--green); border: 1px solid var(--green); }
+.sig-senal     { background: rgba(54,224,122,0.18); color: var(--g); border: 1px solid var(--g); }
 .sig-esperar   { background: rgba(240,192,64,0.12); color: var(--gold); }
 .sig-sinsetup  { background: var(--bg3); color: var(--t2); }
 .sig-fuera     { background: rgba(176,102,255,0.12); color: var(--purple); }
@@ -689,8 +689,8 @@ body {
   flex:1; height:14px; border-radius:3px; overflow:hidden;
   display:flex; background:var(--bg3); border:1px solid var(--bg3);
 }
-.bias-bull { background:var(--green); height:100%; }
-.bias-bear { background:var(--red); height:100%; }
+.bias-bull { background:var(--g); height:100%; flex-shrink:0; }
+.bias-bear { background:var(--r); height:100%; flex-shrink:0; }
 .bias-txt { font-size:9px; white-space:nowrap; font-weight:700; }
 </style>
 </head>
@@ -702,7 +702,7 @@ body {
     <div class="brand">TPDCM-IA<small id="brand-subtitle">PORTFOLIO MULTI-PAR · v2.7</small></div>
 
     <!-- PAIR SELECTOR (v2.6) -->
-    <select id="pair-selector" title="Seleccionar par" style="background:var(--card);color:var(--green);border:1px solid var(--green);border-radius:4px;padding:5px 10px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0.05em;margin-right:8px">
+    <select id="pair-selector" title="Seleccionar par" style="background:var(--bg2);color:var(--g);border:1px solid var(--g);border-radius:4px;padding:5px 10px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0.05em;margin-right:8px">
       <option value="ALL">🌐 TODOS</option>
       <option value="EUR_USD">EUR/USD · Todas</option>
       <option value="GBP_USD">GBP/USD · Todas</option>
@@ -1231,7 +1231,7 @@ let currentPair = localStorage.getItem('tpdcm_pair') || 'ALL';
 // v2.7: Registro central de pares (fuente única de verdad)
 // color = variable CSS; session = sesión permitida; tier = calidad
 const PAIRS_INFO = {
-  'EUR_USD': { display: 'EUR/USD', color: 'var(--green)',  session: 'Todas',       tier: 'A' },
+  'EUR_USD': { display: 'EUR/USD', color: 'var(--g)',  session: 'Todas',       tier: 'A' },
   'GBP_USD': { display: 'GBP/USD', color: 'var(--gold)',   session: 'Todas',       tier: 'B' },
   'AUD_USD': { display: 'AUD/USD', color: 'var(--blue)',   session: 'London only', tier: 'B' },
   'USD_CAD': { display: 'USD/CAD', color: '#ff7a5c',       session: 'London only', tier: 'B' },
@@ -1246,7 +1246,7 @@ function pairColorFor(label) {
   const norm = String(label).replace('/', '_').toUpperCase();
   if (PAIRS_INFO[norm]) return PAIRS_INFO[norm].color;
   // fallback por substring (compat con datos viejos)
-  if (label.includes('EUR') && label.includes('USD')) return 'var(--green)';
+  if (label.includes('EUR') && label.includes('USD')) return 'var(--g)';
   if (label.includes('GBP') && label.includes('JPY')) return 'var(--purple)';
   if (label.includes('GBP')) return 'var(--gold)';
   if (label.includes('AUD')) return 'var(--blue)';
@@ -1317,7 +1317,7 @@ function renderPortfolioStrip() {
     // v2.7: badge de señal en vivo si hay una
     let sigBadge = '';
     if (st.signal === 'SENAL' && st.action) {
-      const c = st.action === 'BUY' ? 'var(--green)' : 'var(--red)';
+      const c = st.action === 'BUY' ? 'var(--g)' : 'var(--r)';
       sigBadge = `<div style="font-size:9px;font-weight:700;color:${c};margin-top:6px;letter-spacing:0.05em">🟢 ${st.action} AHORA</div>`;
     }
     html += `<div class="pf-card ${active}" style="--pf-accent:${info.color}" onclick="setCurrentPair('${p}')">
@@ -1420,7 +1420,7 @@ function renderSignals(data) {
     // score con gap (cuánto falta)
     let scoreCell = '--';
     if (s.score) {
-      scoreCell = `<strong style="color:${s.score>=s.min_score?'var(--green)':'var(--t1)'}">${s.score.toFixed(0)}</strong><span style="color:var(--t2);font-size:9px">/${s.min_score}</span>`;
+      scoreCell = `<strong style="color:${s.score>=s.min_score?'var(--g)':'var(--t)'}">${s.score.toFixed(0)}</strong><span style="color:var(--t2);font-size:9px">/${s.min_score}</span>`;
     }
     // acción técnica (lo que diría aunque no ejecute)
     const accionCell = isSig ? s.action : (s.tech_action ? `<span style="color:var(--t2);font-size:10px">(${s.tech_action})</span>` : '--');
@@ -1431,17 +1431,17 @@ function renderSignals(data) {
       const narr = s.narrativa ? `<div style="margin-top:6px;padding:8px;background:rgba(74,158,255,0.08);border-left:2px solid var(--blue);border-radius:3px;font-style:italic;color:#c4d8e8">🧠 Claude: "${s.narrativa}"</div>` : '';
       detalleRow = `<tr id="det-${idx}" style="display:none"><td colspan="10" style="padding:8px 12px;background:var(--bg2);font-size:10px;color:var(--t2)">
         <strong style="color:var(--gold)">Por qué ${isSig?'señal':'HOLD'}:</strong> ${s.motivo}
-        ${s.htf_bias?` · HTF: <span style="color:var(--t1)">${s.htf_bias}</span>`:''}
+        ${s.htf_bias?` · HTF: <span style="color:var(--t)">${s.htf_bias}</span>`:''}
         ${s.atr_pips?` · ATR: ${s.atr_pips.toFixed(1)}p`:''}
         ${s.sweep_quality?` · Sweep: ${s.sweep_quality}`:''}
-        ${s.bias_label?` · Sesgo: <span style="color:var(--t1)">${s.bias_label} ${s.bias_strength}</span> (${s.bias_bull}% alcista) · Régimen: ${s.regime_type||'--'}`:''}
+        ${s.bias_label?` · Sesgo: <span style="color:var(--t)">${s.bias_label} ${s.bias_strength}</span> (${s.bias_bull}% alcista) · Régimen: ${s.regime_type||'--'}`:''}
         ${narr}
       </td></tr>`;
     }
     // v2.7: barra de sesgo direccional (bull/bear)
     const bull = s.bias_bull != null ? s.bias_bull : 50;
     const bear = s.bias_bear != null ? s.bias_bear : 50;
-    const biasColor = bull >= 60 ? 'var(--green)' : bull <= 40 ? 'var(--red)' : 'var(--gold)';
+    const biasColor = bull >= 60 ? 'var(--g)' : bull <= 40 ? 'var(--r)' : 'var(--gold)';
     const biasTxt = bull >= 60 ? bull+'% ↑' : bull <= 40 ? bear+'% ↓' : '~50/50';
     const biasCell = `<div class="bias-wrap">
       <div class="bias-bar"><div class="bias-bull" style="width:${bull}%"></div><div class="bias-bear" style="width:${bear}%"></div></div>
@@ -1455,8 +1455,8 @@ function renderSignals(data) {
       <td>${scoreCell}</td>
       <td style="font-size:10px">${s.killzone || '--'}</td>
       <td>${fmtP(s.price)}</td>
-      <td style="color:var(--red);${dim}">${hayNiveles ? fmtP(s.sl) : '--'}</td>
-      <td style="color:var(--green);${dim}">${hayNiveles ? fmtP(s.tp1)+' / '+fmtP(s.tp2) : '--'}</td>
+      <td style="color:var(--r);${dim}">${hayNiveles ? fmtP(s.sl) : '--'}</td>
+      <td style="color:var(--g);${dim}">${hayNiveles ? fmtP(s.tp1)+' / '+fmtP(s.tp2) : '--'}</td>
       <td style="${dim}">${hayNiveles && s.rr1 ? s.rr1.toFixed(1)+' / '+(s.rr2?s.rr2.toFixed(1):'--') : '--'}</td>
     </tr>${detalleRow}`;
   }).join('');
