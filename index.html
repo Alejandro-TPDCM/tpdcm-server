@@ -606,6 +606,63 @@ body {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ===== v2.7: PANEL DE PORTFOLIO ===== */
+.portfolio-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.pf-card {
+  background: var(--card);
+  border: 1px solid var(--bg3);
+  border-left: 3px solid var(--pf-accent, var(--t2));
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  position: relative;
+  overflow: hidden;
+}
+.pf-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px var(--shadow);
+}
+.pf-card.active {
+  border-color: var(--pf-accent, var(--green));
+  box-shadow: 0 0 0 1px var(--pf-accent, var(--green)) inset;
+}
+.pf-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--pf-accent, var(--t1));
+  margin-bottom: 2px;
+}
+.pf-card-session {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--t2);
+  margin-bottom: 8px;
+}
+.pf-card-stats {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10px;
+}
+.pf-card-stat { text-align: center; flex: 1; }
+.pf-card-stat .val { display: block; font-size: 14px; font-weight: 700; color: var(--t1); }
+.pf-card-stat .lbl { display: block; font-size: 8px; color: var(--t2); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 1px; }
+.pf-card-dot {
+  position: absolute; top: 10px; right: 10px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 6px var(--green);
+}
+.pf-card.all-card { border-left-color: var(--gold); }
+.pf-card.all-card .pf-card-name { color: var(--gold); }
 </style>
 </head>
 <body>
@@ -613,13 +670,16 @@ body {
 
   <!-- HEADER -->
   <div class="top">
-    <div class="brand">TPDCM-IA<small id="brand-subtitle">PORTFOLIO MULTI-PAR · v2.6</small></div>
+    <div class="brand">TPDCM-IA<small id="brand-subtitle">PORTFOLIO MULTI-PAR · v2.7</small></div>
 
     <!-- PAIR SELECTOR (v2.6) -->
     <select id="pair-selector" title="Seleccionar par" style="background:var(--card);color:var(--green);border:1px solid var(--green);border-radius:4px;padding:5px 10px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0.05em;margin-right:8px">
       <option value="ALL">🌐 TODOS</option>
-      <option value="EUR_USD">EUR/USD</option>
-      <option value="GBP_USD">GBP/USD</option>
+      <option value="EUR_USD">EUR/USD · Todas</option>
+      <option value="GBP_USD">GBP/USD · Todas</option>
+      <option value="AUD_USD">AUD/USD · London</option>
+      <option value="USD_CAD">USD/CAD · London</option>
+      <option value="GBP_JPY">GBP/JPY · London</option>
     </select>
 
     <!-- THEME SWITCHER -->
@@ -658,6 +718,11 @@ body {
 
   <!-- ==================== TAB: DASHBOARD ==================== -->
   <div class="tab-content" id="tab-dashboard">
+
+    <!-- v2.7: PANEL DE PORTFOLIO (5 pares de un vistazo) -->
+    <div class="portfolio-strip" id="portfolio-strip">
+      <!-- tarjetas inyectadas por JS -->
+    </div>
 
     <div class="grid grid-2" style="margin-bottom:12px">
       <div class="card featured">
@@ -1107,8 +1172,34 @@ const API = (window.location.hostname.includes('railway.app'))
   ? ''
   : 'https://web-production-e3f5c.up.railway.app';
 
-// ============== PAIR SELECTOR (v2.6) ==============
+// ============== PAIR SELECTOR (v2.7) ==============
 let currentPair = localStorage.getItem('tpdcm_pair') || 'ALL';
+
+// v2.7: Registro central de pares (fuente única de verdad)
+// color = variable CSS; session = sesión permitida; tier = calidad
+const PAIRS_INFO = {
+  'EUR_USD': { display: 'EUR/USD', color: 'var(--green)',  session: 'Todas',       tier: 'A' },
+  'GBP_USD': { display: 'GBP/USD', color: 'var(--gold)',   session: 'Todas',       tier: 'B' },
+  'AUD_USD': { display: 'AUD/USD', color: 'var(--blue)',   session: 'London only', tier: 'B' },
+  'USD_CAD': { display: 'USD/CAD', color: '#ff7a5c',       session: 'London only', tier: 'B' },
+  'GBP_JPY': { display: 'GBP/JPY', color: 'var(--purple)', session: 'London only', tier: 'B' },
+};
+// Orden de pares activos para iterar
+const ACTIVE_PAIRS = ['EUR_USD','GBP_USD','AUD_USD','USD_CAD','GBP_JPY'];
+
+// Helper: color de un par (acepta 'EUR_USD', 'EUR/USD', o label suelto)
+function pairColorFor(label) {
+  if (!label) return 'var(--t2)';
+  const norm = String(label).replace('/', '_').toUpperCase();
+  if (PAIRS_INFO[norm]) return PAIRS_INFO[norm].color;
+  // fallback por substring (compat con datos viejos)
+  if (label.includes('EUR') && label.includes('USD')) return 'var(--green)';
+  if (label.includes('GBP') && label.includes('JPY')) return 'var(--purple)';
+  if (label.includes('GBP')) return 'var(--gold)';
+  if (label.includes('AUD')) return 'var(--blue)';
+  if (label.includes('CAD')) return '#ff7a5c';
+  return 'var(--t2)';
+}
 
 function pairParam(extraParam = '') {
   // Helper: agrega ?pair=XXX si currentPair !== 'ALL'
@@ -1118,10 +1209,10 @@ function pairParam(extraParam = '') {
 }
 
 function pairDisplay() {
-  if (currentPair === 'ALL') return 'PORTFOLIO MULTI-PAR · v2.6';
-  if (currentPair === 'EUR_USD') return 'EUR/USD INSTITUCIONAL · v2.6';
-  if (currentPair === 'GBP_USD') return 'GBP/USD INSTITUCIONAL · v2.6';
-  return currentPair + ' · v2.6';
+  if (currentPair === 'ALL') return 'PORTFOLIO MULTI-PAR · v2.7';
+  const info = PAIRS_INFO[currentPair];
+  if (info) return info.display + ' INSTITUCIONAL · v2.7';
+  return currentPair + ' · v2.7';
 }
 
 function initPairSelector() {
@@ -1130,12 +1221,57 @@ function initPairSelector() {
   sel.value = currentPair;
   document.getElementById('brand-subtitle').textContent = pairDisplay();
   sel.addEventListener('change', (e) => {
-    currentPair = e.target.value;
-    localStorage.setItem('tpdcm_pair', currentPair);
-    document.getElementById('brand-subtitle').textContent = pairDisplay();
-    // Recargar todos los datos del dashboard
-    if (typeof refreshAll === 'function') refreshAll();
+    setCurrentPair(e.target.value);
   });
+  renderPortfolioStrip();
+}
+
+// v2.7: cambio de par centralizado (selector + panel sincronizados)
+function setCurrentPair(pair) {
+  currentPair = pair;
+  localStorage.setItem('tpdcm_pair', currentPair);
+  const sel = document.getElementById('pair-selector');
+  if (sel) sel.value = currentPair;
+  document.getElementById('brand-subtitle').textContent = pairDisplay();
+  renderPortfolioStrip();
+  if (typeof refreshAll === 'function') refreshAll();
+}
+
+// v2.7: estadísticas en vivo por par (se llenan desde loadBacktest si hay datos)
+let pairStats = {}; // { EUR_USD: {wr, pf, trades}, ... }
+
+// v2.7: renderiza la fila de tarjetas de portfolio
+function renderPortfolioStrip() {
+  const strip = document.getElementById('portfolio-strip');
+  if (!strip) return;
+  let html = '';
+  // Tarjeta TODOS
+  html += `<div class="pf-card all-card ${currentPair==='ALL'?'active':''}" onclick="setCurrentPair('ALL')">
+    <div class="pf-card-name">🌐 TODOS</div>
+    <div class="pf-card-session">Portfolio · 5 pares</div>
+    <div class="pf-card-stats">
+      <div class="pf-card-stat"><span class="val">5</span><span class="lbl">activos</span></div>
+      <div class="pf-card-stat"><span class="val">B+</span><span class="lbl">calidad</span></div>
+    </div>
+  </div>`;
+  // Tarjetas de cada par
+  for (const p of ACTIVE_PAIRS) {
+    const info = PAIRS_INFO[p];
+    const st = pairStats[p] || {};
+    const wr = st.wr != null ? Math.round(st.wr*100)+'%' : '--';
+    const pf = st.pf != null ? st.pf.toFixed(2) : '--';
+    const active = currentPair === p ? 'active' : '';
+    html += `<div class="pf-card ${active}" style="--pf-accent:${info.color}" onclick="setCurrentPair('${p}')">
+      <div class="pf-card-dot" style="background:${info.color};box-shadow:0 0 6px ${info.color}"></div>
+      <div class="pf-card-name">${info.display}</div>
+      <div class="pf-card-session">${info.session} · tier ${info.tier}</div>
+      <div class="pf-card-stats">
+        <div class="pf-card-stat"><span class="val">${wr}</span><span class="lbl">win rate</span></div>
+        <div class="pf-card-stat"><span class="val">${pf}</span><span class="lbl">prof.factor</span></div>
+      </div>
+    </div>`;
+  }
+  strip.innerHTML = html;
 }
 window.addEventListener('DOMContentLoaded', initPairSelector);
 
@@ -1515,6 +1651,17 @@ function renderBacktest(bt) {
   const sum = bt.summary || {};
   const trades = bt.trades || [];
 
+  // v2.7: guardar stats del par para el panel de portfolio
+  const pid = sum.pair_id || (sum.pair ? sum.pair.replace('/', '_') : null);
+  if (pid && PAIRS_INFO[pid]) {
+    pairStats[pid] = {
+      wr: sum.win_rate,
+      pf: sum.profit_factor,
+      trades: sum.total_trades,
+    };
+    if (typeof renderPortfolioStrip === 'function') renderPortfolioStrip();
+  }
+
   $('bt-total').textContent = sum.total_trades || '--';
   $('bt-wr').textContent = sum.win_rate ? (sum.win_rate * 100).toFixed(1) + '%' : '--%';
   $('bt-pf').textContent = sum.profit_factor || '--';
@@ -1528,10 +1675,9 @@ function renderBacktest(bt) {
     $('bt-rows').innerHTML = '<tr><td colspan="10" class="empty">Aún no se ha ejecutado backtesting</td></tr>';
   } else {
     $('bt-rows').innerHTML = trades.slice(0, 50).map(t => {
-      // v2.6.0-fixed4: campos correctos del backend + columna par
+      // v2.7: color único por par desde registro central
       const pairLabel = t.pair || t.pair_id || '--';
-      const pairColor = pairLabel.includes('EUR') ? 'var(--green)' :
-                       pairLabel.includes('GBP') ? 'var(--gold)' : 'var(--t2)';
+      const pairColor = pairColorFor(pairLabel);
       const entry = t.entry_price || t.fill_price || 0;
       const rr1 = t.rr_tp1 || 0;
       const rr2 = t.rr_tp2_real || t.rr_tp2 || 0;
