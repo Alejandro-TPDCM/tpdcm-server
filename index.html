@@ -756,7 +756,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares</div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.1</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -1164,7 +1164,7 @@ body {
     <div class="card" style="margin-bottom:12px; border-color: color-mix(in srgb, var(--blue) 25%, transparent)">
       <div class="card-label">ℹ️ FUENTE DE DATOS DEL BACKTESTING</div>
       <div style="font-size:11px; line-height:1.7; color:var(--t)">
-        <strong style="color:var(--blue)">Datos:</strong> ~8,500 velas H1 reales del par EUR/USD obtenidas directamente de la API de <strong>OANDA</strong> (~16 meses de historia real).<br>
+        <strong style="color:var(--blue)">Datos:</strong> ~18,700 velas H1 reales por par obtenidas directamente de la API de <strong>OANDA</strong> (~36 meses de historia real).<br>
         <strong style="color:var(--blue)">Simulación:</strong> spread 1.5 pips + slippage 0.3 pips + position sizing 1% real + gestión completa (parcial 50% en TP1, SL→BE tras BOS, timeout 25 velas).<br>
         <strong style="color:var(--blue)">Filtros aplicados:</strong> noticias high-impact (NFP/CPI/FOMC/ECB), killzones London 3-5 AM ET y NY 8-12 ET, ADR mínimo 20%, ATR 8-80 pips, cooldown 1 trade/día.<br>
         <strong style="color:var(--blue)">Motor:</strong> mismo motor ICT/SMC determinístico que opera en live → coherencia total entre simulación y operación real.
@@ -2221,7 +2221,7 @@ function exportToExcel(trades, summary, filename) {
     ['Generated', new Date().toLocaleString()],
     ['Pair', 'EUR/USD'],
     ['Source', 'OANDA API · Real Candles H1'],
-    ['Data Range', '~16 meses (8500 velas H1)'],
+    ['Data Range', '~36 meses (18700 velas H1)'],
     ['Backtest Run', bt_state_lastRun || 'N/A'],
     [''],
     ['MÉTRICAS PRINCIPALES'],
