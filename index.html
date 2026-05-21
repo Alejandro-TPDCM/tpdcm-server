@@ -750,9 +750,10 @@ body {
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
-          <button id="btn-analyze" onclick="analyzeAllPairs()" style="background:var(--green);color:var(--bg);border:none;border-radius:4px;padding:6px 14px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.05em">🔍 ANALIZAR 5 PARES</button>
+          <button id="btn-analyze" onclick="analyzeAllPairs()" style="background:#36e07a;color:#06160d;border:none;border-radius:5px;padding:8px 18px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.05em;box-shadow:0 0 12px rgba(54,224,122,0.4)">🔍 ANALIZAR 5 PARES</button>
         </div>
       </div>
+      <div id="signals-banner" style="display:none;font-size:11px;color:var(--t2);background:var(--bg2);border-left:3px solid var(--gold);border-radius:4px;padding:8px 12px;margin-bottom:10px;line-height:1.5"></div>
       <div style="overflow-x:auto">
         <table class="tbl" id="signals-table">
           <thead><tr>
@@ -1380,27 +1381,71 @@ function renderSignals(data) {
     rows.innerHTML = '<tr><td colspan="10" class="empty">Sin datos</td></tr>';
     return;
   }
+  // v2.7: banner informativo según estado de sesión
+  const banner = document.getElementById('signals-banner');
+  if (banner) {
+    const haySenal = data.setups.some(s => s.estado === 'SENAL');
+    if (!data.session_active) {
+      banner.style.display = 'block';
+      banner.innerHTML = '🌙 <strong>Mercado fuera de sesión.</strong> El sistema solo opera en London (3-5 AM ET) y NY (8-11 AM ET). Igual podés hacer clic en cada par para ver su análisis técnico actual y por qué no hay setup.';
+    } else if (!haySenal) {
+      banner.style.display = 'block';
+      banner.innerHTML = '🟢 <strong>Sesión activa.</strong> Analizando en vivo. Aún no hay señal con todas las condiciones — clic en cualquier par para ver POR QUÉ no opera (motivo + análisis de Claude si el score está cerca).';
+    } else {
+      banner.style.display = 'block';
+      banner.innerHTML = '🎯 <strong>¡Hay señal activa!</strong> Revisá los detalles (entry/SL/TP) en la fila resaltada.';
+    }
+  }
   // ordenar: señales primero
   const order = {'SENAL':0,'ESPERAR':1,'FUERA_KILLZONE':2,'SIN_SETUP':3,'SIN_DATOS':4};
   const sorted = [...data.setups].sort((a,b)=>(order[a.estado]??9)-(order[b.estado]??9));
-  rows.innerHTML = sorted.map(s => {
+  rows.innerHTML = sorted.map((s, idx) => {
     const color = pairColorFor(s.pair);
     const isSig = s.estado === 'SENAL';
     const actCls = s.action === 'BUY' ? 'BUY' : s.action === 'SELL' ? 'SELL' : '';
     const fmtP = (v) => v ? Number(v).toFixed(s.pair.includes('JPY') ? 3 : 5) : '--';
-    return `<tr class="${isSig?'sig-row-active':''}">
-      <td style="color:${color};font-weight:700">${s.display}</td>
+    // v2.7: mostrar niveles TEÓRICOS aunque sea HOLD (atenuados si no es señal)
+    const hayNiveles = s.sl && s.tp1;
+    const dim = isSig ? '' : 'opacity:0.55';
+    // score con gap (cuánto falta)
+    let scoreCell = '--';
+    if (s.score) {
+      scoreCell = `<strong style="color:${s.score>=s.min_score?'var(--green)':'var(--t1)'}">${s.score.toFixed(0)}</strong><span style="color:var(--t2);font-size:9px">/${s.min_score}</span>`;
+    }
+    // acción técnica (lo que diría aunque no ejecute)
+    const accionCell = isSig ? s.action : (s.tech_action ? `<span style="color:var(--t2);font-size:10px">(${s.tech_action})</span>` : '--');
+    // fila de detalle expandible (motivo + narrativa)
+    const tieneDetalle = s.motivo && s.motivo !== '--' || s.narrativa;
+    let detalleRow = '';
+    if (tieneDetalle) {
+      const narr = s.narrativa ? `<div style="margin-top:6px;padding:8px;background:rgba(74,158,255,0.08);border-left:2px solid var(--blue);border-radius:3px;font-style:italic;color:#c4d8e8">🧠 Claude: "${s.narrativa}"</div>` : '';
+      detalleRow = `<tr id="det-${idx}" style="display:none"><td colspan="10" style="padding:8px 12px;background:var(--bg2);font-size:10px;color:var(--t2)">
+        <strong style="color:var(--gold)">Por qué ${isSig?'señal':'HOLD'}:</strong> ${s.motivo}
+        ${s.htf_bias?` · HTF: <span style="color:var(--t1)">${s.htf_bias}</span>`:''}
+        ${s.atr_pips?` · ATR: ${s.atr_pips.toFixed(1)}p`:''}
+        ${s.sweep_quality?` · Sweep: ${s.sweep_quality}`:''}
+        ${narr}
+      </td></tr>`;
+    }
+    return `<tr class="${isSig?'sig-row-active':''}" ${tieneDetalle?`onclick="toggleDet(${idx})" style="cursor:pointer"`:''}>
+      <td style="color:${color};font-weight:700">${s.display} ${tieneDetalle?'<span style="color:var(--t2);font-size:9px">▾</span>':''}</td>
       <td>${estadoBadge(s.estado)}</td>
-      <td class="col-action ${actCls}">${isSig ? s.action : '--'}</td>
-      <td>${s.score ? s.score.toFixed(0) : '--'}</td>
+      <td class="col-action ${actCls}">${accionCell}</td>
+      <td>${scoreCell}</td>
       <td style="font-size:10px">${s.killzone || '--'}</td>
       <td>${fmtP(s.price)}</td>
-      <td>${isSig ? fmtP(s.price) : '--'}</td>
-      <td style="color:var(--red)">${isSig ? fmtP(s.sl) : '--'}</td>
-      <td style="color:var(--green)">${isSig ? fmtP(s.tp1)+' / '+fmtP(s.tp2) : '--'}</td>
-      <td>${isSig && s.rr1 ? s.rr1.toFixed(1)+' / '+(s.rr2?s.rr2.toFixed(1):'--') : '--'}</td>
-    </tr>`;
+      <td style="${dim}">${hayNiveles ? fmtP(s.price) : '--'}</td>
+      <td style="color:var(--red);${dim}">${hayNiveles ? fmtP(s.sl) : '--'}</td>
+      <td style="color:var(--green);${dim}">${hayNiveles ? fmtP(s.tp1)+' / '+fmtP(s.tp2) : '--'}</td>
+      <td style="${dim}">${hayNiveles && s.rr1 ? s.rr1.toFixed(1)+' / '+(s.rr2?s.rr2.toFixed(1):'--') : '--'}</td>
+    </tr>${detalleRow}`;
   }).join('');
+}
+
+// v2.7: toggle de fila de detalle (motivo + narrativa de Claude)
+function toggleDet(idx) {
+  const r = document.getElementById('det-' + idx);
+  if (r) r.style.display = r.style.display === 'none' ? 'table-row' : 'none';
 }
 
 // Auto-refresh cada X minutos (toggle)
