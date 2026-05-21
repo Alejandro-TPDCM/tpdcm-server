@@ -87,7 +87,8 @@ NOTIFICATIONS_ENABLED = os.environ.get('NOTIFICATIONS_ENABLED', 'true').lower() 
 
 PAIR             = 'EUR_USD'
 
-PAIRS = ['EUR_USD', 'GBP_USD', 'AUD_USD', 'USD_CAD', 'NZD_USD', 'USD_CHF', 'EUR_GBP', 'EUR_CHF']
+PAIRS = ['EUR_USD', 'GBP_USD', 'AUD_USD', 'USD_CAD', 'NZD_USD', 'USD_CHF', 'EUR_GBP', 'EUR_CHF',
+         'USD_JPY', 'GBP_JPY', 'EUR_JPY', 'XAU_USD']
 
 PAIR_CONFIG = {
     'EUR_USD': {
@@ -125,7 +126,7 @@ PAIR_CONFIG = {
         'block_regimes_always':  ['ranging'],          # ranging 0% WR PnL -$3,950
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed6: FASE 1 - 6 pares nuevos de 4-decimales
+    # v2.6.0-beta-fixed7: FASE 1 - 6 pares nuevos de 4-decimales
     # Todos con enabled=False hasta validar con backtest individual.
     # Misma logica de pips que EUR/USD (pip_value 0.0001).
     # ═══════════════════════════════════════════════════════════════════
@@ -144,7 +145,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed6: AUD solo opera London (NY pierde -$5,832)
+        # v2.6.0-beta-fixed7: AUD solo opera London (NY pierde -$5,832)
         # Backtest London-only: WR 56%, PF 2.72, +$9,066
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -163,7 +164,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed6: CAD solo opera London (NY pierde -$1,365)
+        # v2.6.0-beta-fixed7: CAD solo opera London (NY pierde -$1,365)
         # Backtest London-only: WR 80%, PF 6.59, +$7,363
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -231,6 +232,76 @@ PAIR_CONFIG = {
         'extra_caution_days':    [],
         'block_regimes_always':  [],
     },
+    # ═══════════════════════════════════════════════════════════════════
+    # v2.6.0-beta-fixed7: FASE 2 - pares volatiles (JPY + oro)
+    # AHORA POSIBLES gracias al refactor de pip_value.
+    # JPY: pip_value 0.01 (2 decimales) | XAU: pip_value 0.1
+    # Todos enabled=False hasta validar con backtest individual.
+    # ═══════════════════════════════════════════════════════════════════
+    'USD_JPY': {
+        'display':       'USD/JPY',
+        'enabled':       False,
+        'min_score':     60,
+        'min_score_wed': 66,
+        'risk_pct':      float(os.environ.get('RISK_PCT_USDJPY', '1.0')),
+        'atr_min_pips':  8,
+        'atr_max_pips':  100,
+        'adr_min':       0.20,
+        'spread_pips':   1.5,
+        'slippage_pips': 0.3,
+        'pip_value':     0.01,
+        'tier':          'B',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
+    'GBP_JPY': {
+        'display':       'GBP/JPY',
+        'enabled':       False,
+        'min_score':     62,
+        'min_score_wed': 68,
+        'risk_pct':      float(os.environ.get('RISK_PCT_GBPJPY', '0.8')),
+        'atr_min_pips':  12,
+        'atr_max_pips':  130,
+        'adr_min':       0.25,
+        'spread_pips':   2.5,
+        'slippage_pips': 0.6,
+        'pip_value':     0.01,
+        'tier':          'B',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
+    'EUR_JPY': {
+        'display':       'EUR/JPY',
+        'enabled':       False,
+        'min_score':     61,
+        'min_score_wed': 67,
+        'risk_pct':      float(os.environ.get('RISK_PCT_EURJPY', '0.9')),
+        'atr_min_pips':  10,
+        'atr_max_pips':  110,
+        'adr_min':       0.22,
+        'spread_pips':   2.0,
+        'slippage_pips': 0.4,
+        'pip_value':     0.01,
+        'tier':          'B',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
+    'XAU_USD': {
+        'display':       'XAU/USD',
+        'enabled':       False,
+        'min_score':     60,
+        'min_score_wed': 66,
+        'risk_pct':      float(os.environ.get('RISK_PCT_XAU', '0.8')),
+        'atr_min_pips':  20,
+        'atr_max_pips':  300,
+        'adr_min':       0.20,
+        'spread_pips':   3.0,
+        'slippage_pips': 0.5,
+        'pip_value':     0.1,
+        'tier':          'B',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
 }
 
 def get_pair_config(pair):
@@ -265,7 +336,7 @@ CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']
 
 MAX_TRADES_PER_DAY        = 2
 SECOND_TRADE_RISK_MULT    = 0.7
-MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed6: 3->2 (ajuste fino, mas trades)
+MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed7: 3->2 (ajuste fino, mas trades)
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -577,7 +648,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed6')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed7')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -1186,7 +1257,7 @@ def detect_regime(candles_h1, candles_d1=None):
 # ANOMALY FEATURES
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def detect_anomalies(candles_h1, news_events=None, candle_dt=None):
+def detect_anomalies(candles_h1, news_events=None, candle_dt=None, pip_value=0.0001):
     if len(candles_h1) < 10:
         return {
             'consecutive_long_wicks': 0, 'mechas_consecutivas': 0,
@@ -1277,7 +1348,7 @@ def detect_anomalies(candles_h1, news_events=None, candle_dt=None):
     if len(candles_h1) >= 4:
         velocity = abs(
             float(candles_h1[-1]['mid']['c']) - float(candles_h1[-4]['mid']['c'])
-        ) * 10000
+        ) / pip_value   # v2.6-fixed7: pip_value por par (era *10000)
     else:
         velocity = 0.0
     anomalies_active = []
@@ -1377,7 +1448,7 @@ def compute_levels(sweep, fvg_ob, target_level, price, balance, risk_pct, atr):
             'sl_dist': round(sl_dist,5), 'pos_size': pos_size, 'rr1': rr1, 'rr2': rr2,
             'entry_zone': fvg_ob.get('entry_zone', {'high': 0, 'low': 0})}
 
-def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None, news_events=None):
+def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None, news_events=None, pip_value=0.0001):
     if len(h1) < 30:
         return {'sweep': {'detected': False},
                 'score': {'total': 0, 'executable': False, 'confidence': 0, 'factors': {},
@@ -1385,7 +1456,7 @@ def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None, news_event
                 'regime': {'type': 'unknown', 'volatility_z': 0.0, 'trending_score': 0.0,
                            'regime_quality': 'insufficient_data', 'momentum_consistency': 0.0},
                 'anomalies': {'anomaly_count': 0, 'severity': 'none', 'anomalies_active': []}}
-    atr = compute_atr(h1); atr_pips = atr * 10000
+    atr = compute_atr(h1); atr_pips = atr / pip_value   # v2.6-fixed7: pip_value por par (era *10000)
     h = hour if hour is not None else now_et().hour
     kill = get_killzone(h)
     levels = identify_liquidity_levels(h1, d1[-5:] if d1 and len(d1) >= 5 else None)
@@ -1393,7 +1464,7 @@ def run_ict_pipeline(h1, h4, d1, price, balance, risk_pct, hour=None, news_event
     inducement = detect_inducement(h1)
     sweep = detect_sweep(h1, levels, atr)
     regime = detect_regime(h1, d1)
-    anomalies = detect_anomalies(h1, news_events=news_events, candle_dt=now_et())
+    anomalies = detect_anomalies(h1, news_events=news_events, candle_dt=now_et(), pip_value=pip_value)
     if not sweep.get('detected'):
         return {'sweep': sweep,
                 'score': {'total': 0, 'executable': False, 'confidence': 0, 'factors': {},
@@ -1778,9 +1849,10 @@ async def run_analysis_pair(pair, auto_execute=False, all_news=None):
         if h1: price = float(h1[-1]['mid']['c'])
 
     risk_for_pair = pair_cfg['risk_pct']
+    pip_value_pair = pair_cfg.get('pip_value', 0.0001)   # v2.6-fixed7
 
     ict = run_ict_pipeline(h1, h4, d1, price, state['balance'], risk_for_pair,
-                            news_events=all_news)
+                            news_events=all_news, pip_value=pip_value_pair)
     ict['pair'] = pair
 
     log.info(f'[ICT][{display}] sweep:{ict["sweep"].get("detected")} score:{ict["score"]["total"]}/100')
@@ -1874,7 +1946,7 @@ async def run_analysis_pair(pair, auto_execute=False, all_news=None):
             state['history'] = state['history'][-2000:]
         storage_write_json('legacy/history.json', state['history'][-2000:])
 
-    # v2.6.0-beta-fixed6: filtro de killzones permitidas por par (en vivo)
+    # v2.6.0-beta-fixed7: filtro de killzones permitidas por par (en vivo)
     # AUD/CAD solo operan en LONDON_OPEN (NY pierde dinero)
     pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
     current_kz = ict.get('killzone', '')
@@ -2181,9 +2253,12 @@ def generate_post_mortem_local(td):
     return analysis, rec, fail_factors
 
 
-def simulate_trade(candles, entry_idx, action, sl, tp1, tp2, balance, atr, risk_multiplier=1.0):
+def simulate_trade(candles, entry_idx, action, sl, tp1, tp2, balance, atr, risk_multiplier=1.0,
+                   pip_value=0.0001, spread_pips=1.5, slippage_pips=0.3):
     entry_p = float(candles[entry_idx]['mid']['c'])
-    spread = 0.00015; slip = 0.00003
+    # v2.6-fixed7: spread/slip derivados de pips * pip_value (era hardcoded 0.00015/0.00003)
+    # EUR_USD: 1.5*0.0001=0.00015, 0.3*0.0001=0.00003 (identico al original)
+    spread = spread_pips * pip_value; slip = slippage_pips * pip_value
     fill = entry_p + (spread + slip) if action == 'BUY' else entry_p - (spread + slip)
     sl_dist = abs(fill - sl)
     if sl_dist <= 0: return None
@@ -2356,7 +2431,7 @@ async def run_backtesting_pair(pair):
                     cnt['cooldown'] += 1
                     continue
 
-            if i - last_idx < 4:   # v2.6.0-beta-fixed6: 5->4 velas (ajuste fino)
+            if i - last_idx < 4:   # v2.6.0-beta-fixed7: 5->4 velas (ajuste fino)
                 cnt['cooldown'] += 1
                 continue
 
@@ -2372,7 +2447,8 @@ async def run_backtesting_pair(pair):
             # AQUI ESTA LA MAGIA: usamos el MISMO pipeline que el sistema en vivo
             ict = run_ict_pipeline(
                 h1_w, h4_w, d1_w, c_price, balance, risk_pct_pair,
-                hour=c_h, news_events=all_news
+                hour=c_h, news_events=all_news,
+                pip_value=pair_cfg.get('pip_value', 0.0001)   # v2.6-fixed7
             )
 
             sweep = ict.get('sweep', {})
@@ -2416,7 +2492,7 @@ async def run_backtesting_pair(pair):
                     cnt['pair_blocked_regime'] += 1
                     continue
 
-            # v2.6.0-beta-fixed6: solo operar en killzones permitidas (si se define)
+            # v2.6.0-beta-fixed7: solo operar en killzones permitidas (si se define)
             # AUD/CAD solo en LONDON_OPEN (NY pierde dinero historicamente)
             pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
             if pair_allowed_kz and kill not in pair_allowed_kz:
@@ -2476,7 +2552,10 @@ async def run_backtesting_pair(pair):
             atr_for_sim = ict.get('atr', 0.0010)
             sim = simulate_trade(
                 h1, i, action, sl, tp1, tp2, balance, atr_for_sim,
-                risk_multiplier=risk_mult
+                risk_multiplier=risk_mult,
+                pip_value=pair_cfg.get('pip_value', 0.0001),       # v2.6-fixed7
+                spread_pips=pair_cfg.get('spread_pips', 1.5),
+                slippage_pips=pair_cfg.get('slippage_pips', 0.3)
             )
             if not sim:
                 continue
@@ -3056,7 +3135,7 @@ h1{color:#00e87a}a{color:#4a9eff}</style></head>
 async def api_status():
     # v2.6.0-beta-fixed4: el JSON de estado se mueve aqui (antes estaba en /)
     return {
-        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed6',
+        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed7',
         'now_et': now_et().isoformat(),
         'session_active': is_session(),
         'auto_execute': AUTO_EXECUTE,
