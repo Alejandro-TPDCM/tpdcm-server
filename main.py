@@ -87,7 +87,7 @@ NOTIFICATIONS_ENABLED = os.environ.get('NOTIFICATIONS_ENABLED', 'true').lower() 
 
 PAIR             = 'EUR_USD'
 
-PAIRS = ['EUR_USD', 'GBP_USD']
+PAIRS = ['EUR_USD', 'GBP_USD', 'AUD_USD', 'USD_CAD', 'NZD_USD', 'USD_CHF', 'EUR_GBP', 'EUR_CHF']
 
 PAIR_CONFIG = {
     'EUR_USD': {
@@ -124,6 +124,107 @@ PAIR_CONFIG = {
         'extra_caution_days':    ['Tuesday'],         # martes WR 25% PnL -$4,388
         'block_regimes_always':  ['ranging'],          # ranging 0% WR PnL -$3,950
     },
+    # ═══════════════════════════════════════════════════════════════════
+    # v2.6.0-beta-fixed5: FASE 1 - 6 pares nuevos de 4-decimales
+    # Todos con enabled=False hasta validar con backtest individual.
+    # Misma logica de pips que EUR/USD (pip_value 0.0001).
+    # ═══════════════════════════════════════════════════════════════════
+    'AUD_USD': {
+        'display':       'AUD/USD',
+        'enabled':       False,
+        'min_score':     62,
+        'min_score_wed': 68,
+        'risk_pct':      float(os.environ.get('RISK_PCT_AUD', '1.0')),
+        'atr_min_pips':  8,
+        'atr_max_pips':  90,
+        'adr_min':       0.22,
+        'spread_pips':   1.8,
+        'slippage_pips': 0.4,
+        'pip_value':     0.0001,
+        'tier':          'B',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
+    'USD_CAD': {
+        'display':       'USD/CAD',
+        'enabled':       False,
+        'min_score':     62,
+        'min_score_wed': 68,
+        'risk_pct':      float(os.environ.get('RISK_PCT_CAD', '1.0')),
+        'atr_min_pips':  8,
+        'atr_max_pips':  90,
+        'adr_min':       0.22,
+        'spread_pips':   2.0,
+        'slippage_pips': 0.4,
+        'pip_value':     0.0001,
+        'tier':          'B',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
+    'NZD_USD': {
+        'display':       'NZD/USD',
+        'enabled':       False,
+        'min_score':     63,
+        'min_score_wed': 68,
+        'risk_pct':      float(os.environ.get('RISK_PCT_NZD', '0.8')),
+        'atr_min_pips':  7,
+        'atr_max_pips':  80,
+        'adr_min':       0.22,
+        'spread_pips':   2.2,
+        'slippage_pips': 0.5,
+        'pip_value':     0.0001,
+        'tier':          'C',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
+    'USD_CHF': {
+        'display':       'USD/CHF',
+        'enabled':       False,
+        'min_score':     63,
+        'min_score_wed': 68,
+        'risk_pct':      float(os.environ.get('RISK_PCT_CHF', '0.8')),
+        'atr_min_pips':  8,
+        'atr_max_pips':  85,
+        'adr_min':       0.22,
+        'spread_pips':   2.0,
+        'slippage_pips': 0.5,
+        'pip_value':     0.0001,
+        'tier':          'C',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
+    'EUR_GBP': {
+        'display':       'EUR/GBP',
+        'enabled':       False,
+        'min_score':     64,
+        'min_score_wed': 70,
+        'risk_pct':      float(os.environ.get('RISK_PCT_EURGBP', '0.8')),
+        'atr_min_pips':  6,
+        'atr_max_pips':  60,
+        'adr_min':       0.20,
+        'spread_pips':   2.0,
+        'slippage_pips': 0.4,
+        'pip_value':     0.0001,
+        'tier':          'C',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
+    'EUR_CHF': {
+        'display':       'EUR/CHF',
+        'enabled':       False,
+        'min_score':     64,
+        'min_score_wed': 70,
+        'risk_pct':      float(os.environ.get('RISK_PCT_EURCHF', '0.8')),
+        'atr_min_pips':  6,
+        'atr_max_pips':  60,
+        'adr_min':       0.20,
+        'spread_pips':   2.0,
+        'slippage_pips': 0.4,
+        'pip_value':     0.0001,
+        'tier':          'C',
+        'extra_caution_days':    [],
+        'block_regimes_always':  [],
+    },
 }
 
 def get_pair_config(pair):
@@ -158,7 +259,7 @@ CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']
 
 MAX_TRADES_PER_DAY        = 2
 SECOND_TRADE_RISK_MULT    = 0.7
-MIN_HOURS_BETWEEN_TRADES  = 3
+MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed5: 3->2 (ajuste fino, mas trades)
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -470,7 +571,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed4')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed5')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -2241,7 +2342,7 @@ async def run_backtesting_pair(pair):
                     cnt['cooldown'] += 1
                     continue
 
-            if i - last_idx < 5:
+            if i - last_idx < 4:   # v2.6.0-beta-fixed5: 5->4 velas (ajuste fino)
                 cnt['cooldown'] += 1
                 continue
 
@@ -2934,7 +3035,7 @@ h1{color:#00e87a}a{color:#4a9eff}</style></head>
 async def api_status():
     # v2.6.0-beta-fixed4: el JSON de estado se mueve aqui (antes estaba en /)
     return {
-        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed4',
+        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed5',
         'now_et': now_et().isoformat(),
         'session_active': is_session(),
         'auto_execute': AUTO_EXECUTE,
