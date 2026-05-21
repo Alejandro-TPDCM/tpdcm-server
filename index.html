@@ -682,6 +682,16 @@ body {
 .sig-sindatos  { background: var(--bg3); color: var(--t2); opacity: 0.6; }
 .sig-row-active { background: rgba(54,224,122,0.05); }
 .btn-analyzing { opacity: 0.6; cursor: wait !important; }
+
+/* ===== v2.7: BARRA DE SESGO DIRECCIONAL ===== */
+.bias-wrap { display:flex; align-items:center; gap:6px; min-width:130px; }
+.bias-bar {
+  flex:1; height:14px; border-radius:3px; overflow:hidden;
+  display:flex; background:var(--bg3); border:1px solid var(--bg3);
+}
+.bias-bull { background:var(--green); height:100%; }
+.bias-bear { background:var(--red); height:100%; }
+.bias-txt { font-size:9px; white-space:nowrap; font-weight:700; }
 </style>
 </head>
 <body>
@@ -757,8 +767,8 @@ body {
       <div style="overflow-x:auto">
         <table class="tbl" id="signals-table">
           <thead><tr>
-            <th>Par</th><th>Estado</th><th>Acción</th><th>Score</th>
-            <th>Killzone</th><th>Precio</th><th>Entry</th><th>SL</th><th>TP1 / TP2</th><th>RR</th>
+            <th>Par</th><th>Estado</th><th>Sesgo (indicadores)</th><th>Acción</th><th>Score</th>
+            <th>Killzone</th><th>Precio</th><th>SL</th><th>TP1 / TP2</th><th>RR</th>
           </tr></thead>
           <tbody id="signals-rows">
             <tr><td colspan="10" class="empty">Click en "ANALIZAR 5 PARES" para ver las posibles entradas</td></tr>
@@ -1424,17 +1434,27 @@ function renderSignals(data) {
         ${s.htf_bias?` · HTF: <span style="color:var(--t1)">${s.htf_bias}</span>`:''}
         ${s.atr_pips?` · ATR: ${s.atr_pips.toFixed(1)}p`:''}
         ${s.sweep_quality?` · Sweep: ${s.sweep_quality}`:''}
+        ${s.bias_label?` · Sesgo: <span style="color:var(--t1)">${s.bias_label} ${s.bias_strength}</span> (${s.bias_bull}% alcista) · Régimen: ${s.regime_type||'--'}`:''}
         ${narr}
       </td></tr>`;
     }
+    // v2.7: barra de sesgo direccional (bull/bear)
+    const bull = s.bias_bull != null ? s.bias_bull : 50;
+    const bear = s.bias_bear != null ? s.bias_bear : 50;
+    const biasColor = bull >= 60 ? 'var(--green)' : bull <= 40 ? 'var(--red)' : 'var(--gold)';
+    const biasTxt = bull >= 60 ? bull+'% ↑' : bull <= 40 ? bear+'% ↓' : '~50/50';
+    const biasCell = `<div class="bias-wrap">
+      <div class="bias-bar"><div class="bias-bull" style="width:${bull}%"></div><div class="bias-bear" style="width:${bear}%"></div></div>
+      <span class="bias-txt" style="color:${biasColor}">${biasTxt}</span>
+    </div>`;
     return `<tr class="${isSig?'sig-row-active':''}" ${tieneDetalle?`onclick="toggleDet(${idx})" style="cursor:pointer"`:''}>
       <td style="color:${color};font-weight:700">${s.display} ${tieneDetalle?'<span style="color:var(--t2);font-size:9px">▾</span>':''}</td>
       <td>${estadoBadge(s.estado)}</td>
+      <td>${biasCell}</td>
       <td class="col-action ${actCls}">${accionCell}</td>
       <td>${scoreCell}</td>
       <td style="font-size:10px">${s.killzone || '--'}</td>
       <td>${fmtP(s.price)}</td>
-      <td style="${dim}">${hayNiveles ? fmtP(s.price) : '--'}</td>
       <td style="color:var(--red);${dim}">${hayNiveles ? fmtP(s.sl) : '--'}</td>
       <td style="color:var(--green);${dim}">${hayNiveles ? fmtP(s.tp1)+' / '+fmtP(s.tp2) : '--'}</td>
       <td style="${dim}">${hayNiveles && s.rr1 ? s.rr1.toFixed(1)+' / '+(s.rr2?s.rr2.toFixed(1):'--') : '--'}</td>
