@@ -663,6 +663,25 @@ body {
 }
 .pf-card.all-card { border-left-color: var(--gold); }
 .pf-card.all-card .pf-card-name { color: var(--gold); }
+
+/* ===== v2.7: BADGES DE ESTADO DE SEÑALES ===== */
+.sig-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.sig-senal     { background: rgba(54,224,122,0.18); color: var(--green); border: 1px solid var(--green); }
+.sig-esperar   { background: rgba(240,192,64,0.12); color: var(--gold); }
+.sig-sinsetup  { background: var(--bg3); color: var(--t2); }
+.sig-fuera     { background: rgba(176,102,255,0.12); color: var(--purple); }
+.sig-sindatos  { background: var(--bg3); color: var(--t2); opacity: 0.6; }
+.sig-row-active { background: rgba(54,224,122,0.05); }
+.btn-analyzing { opacity: 0.6; cursor: wait !important; }
 </style>
 </head>
 <body>
@@ -722,6 +741,29 @@ body {
     <!-- v2.7: PANEL DE PORTFOLIO (5 pares de un vistazo) -->
     <div class="portfolio-strip" id="portfolio-strip">
       <!-- tarjetas inyectadas por JS -->
+    </div>
+
+    <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
+    <div class="card" id="signals-panel" style="margin-bottom:14px">
+      <div class="sec-header">
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
+          <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
+          <button id="btn-analyze" onclick="analyzeAllPairs()" style="background:var(--green);color:var(--bg);border:none;border-radius:4px;padding:6px 14px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.05em">🔍 ANALIZAR 5 PARES</button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="tbl" id="signals-table">
+          <thead><tr>
+            <th>Par</th><th>Estado</th><th>Acción</th><th>Score</th>
+            <th>Killzone</th><th>Precio</th><th>Entry</th><th>SL</th><th>TP1 / TP2</th><th>RR</th>
+          </tr></thead>
+          <tbody id="signals-rows">
+            <tr><td colspan="10" class="empty">Click en "ANALIZAR 5 PARES" para ver las posibles entradas</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div class="grid grid-2" style="margin-bottom:12px">
@@ -1261,6 +1303,12 @@ function renderPortfolioStrip() {
     const wr = st.wr != null ? Math.round(st.wr*100)+'%' : '--';
     const pf = st.pf != null ? st.pf.toFixed(2) : '--';
     const active = currentPair === p ? 'active' : '';
+    // v2.7: badge de señal en vivo si hay una
+    let sigBadge = '';
+    if (st.signal === 'SENAL' && st.action) {
+      const c = st.action === 'BUY' ? 'var(--green)' : 'var(--red)';
+      sigBadge = `<div style="font-size:9px;font-weight:700;color:${c};margin-top:6px;letter-spacing:0.05em">🟢 ${st.action} AHORA</div>`;
+    }
     html += `<div class="pf-card ${active}" style="--pf-accent:${info.color}" onclick="setCurrentPair('${p}')">
       <div class="pf-card-dot" style="background:${info.color};box-shadow:0 0 6px ${info.color}"></div>
       <div class="pf-card-name">${info.display}</div>
@@ -1269,11 +1317,110 @@ function renderPortfolioStrip() {
         <div class="pf-card-stat"><span class="val">${wr}</span><span class="lbl">win rate</span></div>
         <div class="pf-card-stat"><span class="val">${pf}</span><span class="lbl">prof.factor</span></div>
       </div>
+      ${sigBadge}
     </div>`;
   }
   strip.innerHTML = html;
 }
 window.addEventListener('DOMContentLoaded', initPairSelector);
+
+// ============== v2.7: ANÁLISIS DE 5 PARES + PANEL DE SEÑALES ==============
+let signalsAutoTimer = null;
+const SIGNALS_AUTO_MIN = 5; // auto-refresh cada 5 minutos
+
+function estadoBadge(estado) {
+  const map = {
+    'SENAL':         ['sig-senal', '🟢 SEÑAL'],
+    'ESPERAR':       ['sig-esperar', '⏳ ESPERAR'],
+    'SIN_SETUP':     ['sig-sinsetup', '— SIN SETUP'],
+    'FUERA_KILLZONE':['sig-fuera', '🕐 FUERA KZ'],
+    'SIN_DATOS':     ['sig-sindatos', '· SIN DATOS'],
+  };
+  const [cls, txt] = map[estado] || ['sig-sindatos', estado];
+  return `<span class="sig-badge ${cls}">${txt}</span>`;
+}
+
+async function analyzeAllPairs(silent) {
+  const btn = document.getElementById('btn-analyze');
+  if (btn && !silent) { btn.classList.add('btn-analyzing'); btn.textContent = '⏳ ANALIZANDO...'; }
+  try {
+    // run=true fuerza análisis fresco de los 5 pares
+    const r = await fetch(API + '/all-setups?run=true');
+    const data = await r.json();
+    if (data.ok) {
+      renderSignals(data);
+      // actualizar también las tarjetas con la señal (action) de cada par
+      for (const s of data.setups) {
+        if (!pairStats[s.pair]) pairStats[s.pair] = {};
+        pairStats[s.pair].signal = s.estado;
+        pairStats[s.pair].action = s.action;
+      }
+      renderPortfolioStrip();
+    } else {
+      const rows = document.getElementById('signals-rows');
+      if (rows) rows.innerHTML = '<tr><td colspan="10" class="empty">Error: ' + (data.error||'desconocido') + '</td></tr>';
+    }
+  } catch (e) {
+    const rows = document.getElementById('signals-rows');
+    if (rows) rows.innerHTML = '<tr><td colspan="10" class="empty">Error de conexión</td></tr>';
+  } finally {
+    if (btn && !silent) { btn.classList.remove('btn-analyzing'); btn.textContent = '🔍 ANALIZAR 5 PARES'; }
+  }
+}
+
+function renderSignals(data) {
+  const rows = document.getElementById('signals-rows');
+  const ts = document.getElementById('signals-ts');
+  if (!rows) return;
+  if (ts) {
+    const sess = data.session_active ? '🟢 sesión activa' : '🔴 fuera de sesión';
+    ts.textContent = sess + ' · ' + new Date().toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit'});
+  }
+  if (!data.setups || !data.setups.length) {
+    rows.innerHTML = '<tr><td colspan="10" class="empty">Sin datos</td></tr>';
+    return;
+  }
+  // ordenar: señales primero
+  const order = {'SENAL':0,'ESPERAR':1,'FUERA_KILLZONE':2,'SIN_SETUP':3,'SIN_DATOS':4};
+  const sorted = [...data.setups].sort((a,b)=>(order[a.estado]??9)-(order[b.estado]??9));
+  rows.innerHTML = sorted.map(s => {
+    const color = pairColorFor(s.pair);
+    const isSig = s.estado === 'SENAL';
+    const actCls = s.action === 'BUY' ? 'BUY' : s.action === 'SELL' ? 'SELL' : '';
+    const fmtP = (v) => v ? Number(v).toFixed(s.pair.includes('JPY') ? 3 : 5) : '--';
+    return `<tr class="${isSig?'sig-row-active':''}">
+      <td style="color:${color};font-weight:700">${s.display}</td>
+      <td>${estadoBadge(s.estado)}</td>
+      <td class="col-action ${actCls}">${isSig ? s.action : '--'}</td>
+      <td>${s.score ? s.score.toFixed(0) : '--'}</td>
+      <td style="font-size:10px">${s.killzone || '--'}</td>
+      <td>${fmtP(s.price)}</td>
+      <td>${isSig ? fmtP(s.price) : '--'}</td>
+      <td style="color:var(--red)">${isSig ? fmtP(s.sl) : '--'}</td>
+      <td style="color:var(--green)">${isSig ? fmtP(s.tp1)+' / '+fmtP(s.tp2) : '--'}</td>
+      <td>${isSig && s.rr1 ? s.rr1.toFixed(1)+' / '+(s.rr2?s.rr2.toFixed(1):'--') : '--'}</td>
+    </tr>`;
+  }).join('');
+}
+
+// Auto-refresh cada X minutos (toggle)
+function toggleSignalsAuto() {
+  const lbl = document.getElementById('signals-auto');
+  if (signalsAutoTimer) {
+    clearInterval(signalsAutoTimer);
+    signalsAutoTimer = null;
+    if (lbl) lbl.textContent = 'auto: off';
+  } else {
+    signalsAutoTimer = setInterval(() => analyzeAllPairs(true), SIGNALS_AUTO_MIN*60*1000);
+    if (lbl) lbl.textContent = 'auto: cada ' + SIGNALS_AUTO_MIN + ' min';
+    analyzeAllPairs(true); // primera corrida inmediata
+  }
+}
+// activar auto-refresh al cargar (clickeable en la etiqueta para apagar)
+window.addEventListener('DOMContentLoaded', () => {
+  const lbl = document.getElementById('signals-auto');
+  if (lbl) { lbl.style.cursor = 'pointer'; lbl.title='click para activar/desactivar'; lbl.onclick = toggleSignalsAuto; }
+});
 
 // ============== THEME SWITCHER ==============
 const THEMES = {
