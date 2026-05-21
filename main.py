@@ -126,7 +126,7 @@ PAIR_CONFIG = {
         'block_regimes_always':  ['ranging'],          # ranging 0% WR PnL -$3,950
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed10: FASE 1 - 6 pares nuevos de 4-decimales
+    # v2.6.0-beta-fixed11: FASE 1 - 6 pares nuevos de 4-decimales
     # Todos con enabled=False hasta validar con backtest individual.
     # Misma logica de pips que EUR/USD (pip_value 0.0001).
     # ═══════════════════════════════════════════════════════════════════
@@ -145,7 +145,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed10: AUD solo opera London (NY pierde -$5,832)
+        # v2.6.0-beta-fixed11: AUD solo opera London (NY pierde -$5,832)
         # Backtest London-only: WR 56%, PF 2.72, +$9,066
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -164,7 +164,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed10: CAD solo opera London (NY pierde -$1,365)
+        # v2.6.0-beta-fixed11: CAD solo opera London (NY pierde -$1,365)
         # Backtest London-only: WR 80%, PF 6.59, +$7,363
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -233,7 +233,7 @@ PAIR_CONFIG = {
         'block_regimes_always':  [],
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed10: FASE 2 - pares volatiles (JPY + oro)
+    # v2.6.0-beta-fixed11: FASE 2 - pares volatiles (JPY + oro)
     # AHORA POSIBLES gracias al refactor de pip_value.
     # JPY: pip_value 0.01 (2 decimales) | XAU: pip_value 0.1
     # Todos enabled=False hasta validar con backtest individual.
@@ -269,7 +269,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed10: GBP/JPY solo opera London (NY pierde -$2,085)
+        # v2.6.0-beta-fixed11: GBP/JPY solo opera London (NY pierde -$2,085)
         # Backtest London-only: WR 62%, PF 2.52, +$6,009 (8 trades en 16 meses)
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -339,7 +339,7 @@ CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']
 
 MAX_TRADES_PER_DAY        = 2
 SECOND_TRADE_RISK_MULT    = 0.7
-MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed10: 3->2 (ajuste fino, mas trades)
+MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed11: 3->2 (ajuste fino, mas trades)
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -651,7 +651,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed10')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed11')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -1949,7 +1949,7 @@ async def run_analysis_pair(pair, auto_execute=False, all_news=None):
             state['history'] = state['history'][-2000:]
         storage_write_json('legacy/history.json', state['history'][-2000:])
 
-    # v2.6.0-beta-fixed10: filtro de killzones permitidas por par (en vivo)
+    # v2.6.0-beta-fixed11: filtro de killzones permitidas por par (en vivo)
     # AUD/CAD solo operan en LONDON_OPEN (NY pierde dinero)
     pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
     current_kz = ict.get('killzone', '')
@@ -2434,7 +2434,7 @@ async def run_backtesting_pair(pair):
                     cnt['cooldown'] += 1
                     continue
 
-            if i - last_idx < 4:   # v2.6.0-beta-fixed10: 5->4 velas (ajuste fino)
+            if i - last_idx < 4:   # v2.6.0-beta-fixed11: 5->4 velas (ajuste fino)
                 cnt['cooldown'] += 1
                 continue
 
@@ -2495,7 +2495,7 @@ async def run_backtesting_pair(pair):
                     cnt['pair_blocked_regime'] += 1
                     continue
 
-            # v2.6.0-beta-fixed10: solo operar en killzones permitidas (si se define)
+            # v2.6.0-beta-fixed11: solo operar en killzones permitidas (si se define)
             # AUD/CAD solo en LONDON_OPEN (NY pierde dinero historicamente)
             pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
             if pair_allowed_kz and kill not in pair_allowed_kz:
@@ -3138,7 +3138,7 @@ h1{color:#00e87a}a{color:#4a9eff}</style></head>
 async def api_status():
     # v2.6.0-beta-fixed4: el JSON de estado se mueve aqui (antes estaba en /)
     return {
-        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed10',
+        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed11',
         'now_et': now_et().isoformat(),
         'session_active': is_session(),
         'auto_execute': AUTO_EXECUTE,
@@ -3238,14 +3238,17 @@ async def trigger_analysis_endpoint():
 
 
 @app.api_route('/all-setups', methods=['GET', 'POST'])
-async def all_setups_endpoint(run: bool = False):
+async def all_setups_endpoint(run: bool = False, cognitive: bool = True):
     """v2.7: devuelve las posibles entradas de TODOS los pares activos.
     Si run=true, ejecuta el analisis primero (bajo demanda).
-    Si run=false (default), lee el ultimo analisis guardado en pair_state."""
+    Si cognitive=true, llama a Claude SOLO para pares con score "cerca" del minimo.
+    Siempre devuelve niveles teoricos + motivo del HOLD aunque no haya senal."""
     try:
         if run:
-            # Forzar analisis fresco de los pares activos (sin ejecutar trades)
             await run_analysis(auto_execute=False)
+
+        # Umbral para considerar un score "cerca" del minimo (llamar a Claude)
+        COGNITIVE_GAP = 10  # si score >= (min_score - 10), Claude opina
 
         setups = []
         for pair in get_active_pairs():
@@ -3256,54 +3259,97 @@ async def all_setups_endpoint(run: bool = False):
             ict = last_an.get('ict') or {}
             sweep = ict.get('sweep', {})
             score = ict.get('score', {})
+            levels = ict.get('levels') or {}
 
-            # Determinar estado de la "posible entrada"
+            score_total = score.get('total', 0)
+            min_score = cfg.get('min_score', 58)
             action = last_dc.get('action', 'WAIT')
+            tech_action = score.get('action')  # accion tecnica (aunque no ejecutable)
             kz = ict.get('killzone', '')
             allowed_kz = cfg.get('allowed_killzones', [])
             kz_ok = (not allowed_kz) or (kz in allowed_kz)
+            has_sweep = sweep.get('detected', False)
 
-            # Clasificar el estado del setup
+            # Clasificar estado
             if not last_an:
                 estado = 'SIN_DATOS'
-            elif not sweep.get('detected'):
+            elif action in ('BUY', 'SELL'):
+                estado = 'SENAL'
+            elif not has_sweep:
                 estado = 'SIN_SETUP'
             elif not kz_ok:
                 estado = 'FUERA_KILLZONE'
-            elif action in ('BUY', 'SELL'):
-                estado = 'SENAL'
             else:
                 estado = 'ESPERAR'
+
+            # v2.7: MOTIVO detallado del HOLD (por que no se toma)
+            motivos = []
+            if not has_sweep:
+                motivos.append('Falta sweep institucional')
+            if not kz_ok and allowed_kz:
+                motivos.append(f'Fuera de killzone (solo {", ".join(allowed_kz)})')
+            if has_sweep and score_total < min_score:
+                motivos.append(f'Score {score_total:.0f} < minimo {min_score}')
+            if has_sweep and not score.get('executable'):
+                motivos.append('Setup no ejecutable (calidad insuficiente)')
+            motivo_str = ' · '.join(motivos) if motivos else (last_dc.get('reason') or '--')
+
+            # v2.7: niveles TEORICOS (de la posible entrada, aunque sea HOLD)
+            # Usa los del decision si existe, sino los calculados en el pipeline
+            sl_t = last_dc.get('sl', 0) or levels.get('sl', 0)
+            tp1_t = last_dc.get('tp1', 0) or levels.get('tp1', 0)
+            tp2_t = last_dc.get('tp2', 0) or levels.get('tp2', 0)
+            rr1_t = last_dc.get('rr1', 0) or levels.get('rr_tp1', 0)
+            rr2_t = last_dc.get('rr2', 0) or levels.get('rr_tp2', 0)
+
+            # v2.7: narrativa de Claude SOLO si score esta "cerca" (ahorra API)
+            narrativa = ''
+            claude_called = False
+            score_cerca = has_sweep and score_total >= (min_score - COGNITIVE_GAP)
+            if cognitive and score_cerca and tech_action and not cognitive_is_disabled():
+                try:
+                    cog = await call_cognitive_layer(ict, state.get('history', [])[-10:])
+                    if cog:
+                        claude_called = True
+                        narrativa = getattr(cog, 'narrative', '') or getattr(cog, 'reasoning', '') or ''
+                except Exception as ce:
+                    log.warning(f'[ALL-SETUPS] cognitive {pair}: {ce}')
 
             setups.append({
                 'pair': pair,
                 'display': cfg.get('display', pair),
                 'estado': estado,
                 'action': action,
+                'tech_action': tech_action,        # lo que diria tecnicamente
                 'confidence': last_dc.get('confidence', 0),
-                'score': score.get('total', 0),
+                'score': score_total,
+                'min_score': min_score,
+                'score_gap': round(min_score - score_total, 1) if score_total else None,
                 'killzone': kz,
                 'killzone_ok': kz_ok,
                 'allowed_killzones': allowed_kz,
                 'price': last_an.get('price', 0),
-                'sweep_detected': sweep.get('detected', False),
+                'sweep_detected': has_sweep,
                 'sweep_quality': sweep.get('quality', ''),
                 'htf_bias': ict.get('htf_bias', ''),
-                'sl': last_dc.get('sl', 0),
-                'tp1': last_dc.get('tp1', 0),
-                'tp2': last_dc.get('tp2', 0),
-                'rr1': last_dc.get('rr1', 0),
-                'rr2': last_dc.get('rr2', 0),
+                'htf_strength': ict.get('htf_strength', 0),
+                'atr_pips': ict.get('atr_pips', 0),
+                'adr_pct': ict.get('adr_pct', 0),
+                # niveles teoricos (posible entrada)
+                'sl': sl_t, 'tp1': tp1_t, 'tp2': tp2_t, 'rr1': rr1_t, 'rr2': rr2_t,
+                'motivo': motivo_str,              # por que HOLD
+                'narrativa': narrativa,            # opinion de Claude (si score cerca)
+                'claude_called': claude_called,
                 'source': last_dc.get('source', ''),
-                'reason': last_dc.get('reason', ''),
                 'ts': last_an.get('ts', ''),
-                'session': cfg.get('allowed_killzones') and 'London only' or 'Todas',
+                'session': 'London only' if cfg.get('allowed_killzones') else 'Todas',
             })
 
         return {
             'ok': True,
             'session_active': is_session(),
             'now_et': now_et().isoformat(),
+            'cognitive_enabled': cognitive,
             'count': len(setups),
             'setups': setups,
         }
