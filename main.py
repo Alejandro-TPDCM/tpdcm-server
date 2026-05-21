@@ -126,7 +126,7 @@ PAIR_CONFIG = {
         'block_regimes_always':  ['ranging'],          # ranging 0% WR PnL -$3,950
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed12: FASE 1 - 6 pares nuevos de 4-decimales
+    # v2.6.0-beta-fixed13: FASE 1 - 6 pares nuevos de 4-decimales
     # Todos con enabled=False hasta validar con backtest individual.
     # Misma logica de pips que EUR/USD (pip_value 0.0001).
     # ═══════════════════════════════════════════════════════════════════
@@ -145,7 +145,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed12: AUD solo opera London (NY pierde -$5,832)
+        # v2.6.0-beta-fixed13: AUD solo opera London (NY pierde -$5,832)
         # Backtest London-only: WR 56%, PF 2.72, +$9,066
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -164,7 +164,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed12: CAD solo opera London (NY pierde -$1,365)
+        # v2.6.0-beta-fixed13: CAD solo opera London (NY pierde -$1,365)
         # Backtest London-only: WR 80%, PF 6.59, +$7,363
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -233,7 +233,7 @@ PAIR_CONFIG = {
         'block_regimes_always':  [],
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed12: FASE 2 - pares volatiles (JPY + oro)
+    # v2.6.0-beta-fixed13: FASE 2 - pares volatiles (JPY + oro)
     # AHORA POSIBLES gracias al refactor de pip_value.
     # JPY: pip_value 0.01 (2 decimales) | XAU: pip_value 0.1
     # Todos enabled=False hasta validar con backtest individual.
@@ -269,7 +269,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed12: GBP/JPY solo opera London (NY pierde -$2,085)
+        # v2.6.0-beta-fixed13: GBP/JPY solo opera London (NY pierde -$2,085)
         # Backtest London-only: WR 62%, PF 2.52, +$6,009 (8 trades en 16 meses)
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -339,7 +339,7 @@ CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']
 
 MAX_TRADES_PER_DAY        = 2
 SECOND_TRADE_RISK_MULT    = 0.7
-MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed12: 3->2 (ajuste fino, mas trades)
+MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed13: 3->2 (ajuste fino, mas trades)
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -651,7 +651,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed12')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed13')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -2014,7 +2014,7 @@ async def run_analysis_pair(pair, auto_execute=False, all_news=None):
             state['history'] = state['history'][-2000:]
         storage_write_json('legacy/history.json', state['history'][-2000:])
 
-    # v2.6.0-beta-fixed12: filtro de killzones permitidas por par (en vivo)
+    # v2.6.0-beta-fixed13: filtro de killzones permitidas por par (en vivo)
     # AUD/CAD solo operan en LONDON_OPEN (NY pierde dinero)
     pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
     current_kz = ict.get('killzone', '')
@@ -2413,9 +2413,11 @@ async def run_backtesting_pair(pair):
 
     try:
         # CARGAR VELAS HISTORICAS DEL PAR
+        # v2.7: periodo extendido a ~36 meses (3 años) para muestra mas robusta
+        # 36 meses ~ 18,700 velas H1 = ~38 lotes de 500
         h1 = await get_candles_to('H1', 500, pair=pair)
-        for _ in range(1, 17):
-            if len(h1) >= 8500:
+        for _ in range(1, 40):
+            if len(h1) >= 18700:
                 break
             oldest = h1[0].get('time', '')
             if not oldest:
@@ -2428,15 +2430,39 @@ async def run_backtesting_pair(pair):
         log.info(f'[BT][{display}] {len(h1)} velas H1 totales')
 
         # D1 y H4 para contexto HTF
+        # v2.7: D1 extendido a ~1100 dias (3 años) para cubrir todo el periodo
         d1_all = []
         try:
-            d1_all = await get_candles_to('D', 300, pair=pair)
+            d1_all = await get_candles_to('D', 500, pair=pair)
+            for _ in range(1, 4):
+                if len(d1_all) >= 1100:
+                    break
+                oldest = d1_all[0].get('time', '')
+                if not oldest:
+                    break
+                batch = await get_candles_to('D', 500, to_dt=oldest, pair=pair)
+                if not batch or len(batch) < 2:
+                    break
+                d1_all = batch[:-1] + d1_all
+                await asyncio.sleep(0.3)
         except Exception:
             pass
 
+        # v2.7: H4 extendido a ~4500 velas (3 años) con bucle
         h4_all = []
         try:
             h4_all = await get_candles_to('H4', 500, pair=pair)
+            for _ in range(1, 10):
+                if len(h4_all) >= 4500:
+                    break
+                oldest = h4_all[0].get('time', '')
+                if not oldest:
+                    break
+                batch = await get_candles_to('H4', 500, to_dt=oldest, pair=pair)
+                if not batch or len(batch) < 2:
+                    break
+                h4_all = batch[:-1] + h4_all
+                await asyncio.sleep(0.3)
         except Exception:
             pass
 
@@ -2499,7 +2525,7 @@ async def run_backtesting_pair(pair):
                     cnt['cooldown'] += 1
                     continue
 
-            if i - last_idx < 4:   # v2.6.0-beta-fixed12: 5->4 velas (ajuste fino)
+            if i - last_idx < 4:   # v2.6.0-beta-fixed13: 5->4 velas (ajuste fino)
                 cnt['cooldown'] += 1
                 continue
 
@@ -2560,7 +2586,7 @@ async def run_backtesting_pair(pair):
                     cnt['pair_blocked_regime'] += 1
                     continue
 
-            # v2.6.0-beta-fixed12: solo operar en killzones permitidas (si se define)
+            # v2.6.0-beta-fixed13: solo operar en killzones permitidas (si se define)
             # AUD/CAD solo en LONDON_OPEN (NY pierde dinero historicamente)
             pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
             if pair_allowed_kz and kill not in pair_allowed_kz:
@@ -3203,7 +3229,7 @@ h1{color:#00e87a}a{color:#4a9eff}</style></head>
 async def api_status():
     # v2.6.0-beta-fixed4: el JSON de estado se mueve aqui (antes estaba en /)
     return {
-        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed12',
+        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed13',
         'now_et': now_et().isoformat(),
         'session_active': is_session(),
         'auto_execute': AUTO_EXECUTE,
