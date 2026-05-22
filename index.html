@@ -756,7 +756,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.1</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.2</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -1569,7 +1569,7 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  setPill('pill-server', d.server === 'online', d.server === 'online' ? 'SERVER' : 'OFFLINE');
+  // v2.7.2: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -1924,6 +1924,8 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
+    // v2.7.2: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
   if (d) {
