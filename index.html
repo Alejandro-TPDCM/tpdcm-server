@@ -756,7 +756,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.2</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.3</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -868,8 +868,20 @@ body {
   <!-- ==================== TAB: ICT ANALYSIS ==================== -->
   <div class="tab-content hidden" id="tab-ict">
 
+    <!-- v2.7.3: CEREBRO POR PAR (Python motor + Claude cognitive) -->
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px">
+        <div class="card-label" style="margin:0">🧠 CEREBRO DEL SISTEMA · ANÁLISIS POR PAR</div>
+        <button id="btn-cerebro" onclick="analyzeAllPairs()" style="background:#36e07a;color:#06160d;border:none;border-radius:5px;padding:7px 16px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:0.05em;box-shadow:0 0 12px rgba(54,224,122,0.4)">🔍 ANALIZAR 5 PARES</button>
+      </div>
+      <div style="font-size:10.5px; color:var(--t2); margin-bottom:12px; line-height:1.5">
+        Así decide el sistema en 2 etapas: <strong style="color:var(--g)">🐍 Python</strong> detecta el setup técnico ICT y lo puntúa, luego <strong style="color:var(--purple)">🧠 Claude</strong> valida el contexto (veta o aprueba). Claude solo opina cuando el score está cerca del mínimo (ahorra API).
+      </div>
+      <div id="cerebro-cards"><div class="empty">Hacé clic en "ANALIZAR 5 PARES" para ver el cerebro del sistema en acción.</div></div>
+    </div>
+
     <div class="card" style="margin-bottom:12px">
-      <div class="card-label">🎯 SCORE 100 PUNTOS — DESGLOSE POR FACTOR</div>
+      <div class="card-label">🎯 SCORE 100 PUNTOS — DESGLOSE POR FACTOR <span style="color:var(--t3); font-weight:400; text-transform:none; letter-spacing:0">(detalle de EUR/USD)</span></div>
       <div style="margin-bottom:12px; display:flex; align-items:baseline; gap:14px">
         <span style="font-family:'IBM Plex Mono'; font-size:28px; font-weight:700; color:var(--gold)" id="ict-score-total">--/100</span>
         <span style="color:var(--t2); font-size:11px" id="ict-score-exec">--</span>
@@ -1353,13 +1365,18 @@ function estadoBadge(estado) {
 
 async function analyzeAllPairs(silent) {
   const btn = document.getElementById('btn-analyze');
-  if (btn && !silent) { btn.classList.add('btn-analyzing'); btn.textContent = '⏳ ANALIZANDO...'; }
+  const btn2 = document.getElementById('btn-cerebro');
+  if (!silent) {
+    if (btn)  { btn.classList.add('btn-analyzing');  btn.textContent = '⏳ ANALIZANDO...'; }
+    if (btn2) { btn2.classList.add('btn-analyzing'); btn2.textContent = '⏳ ANALIZANDO...'; }
+  }
   try {
     // run=true fuerza análisis fresco de los 5 pares
     const r = await fetch(API + '/all-setups?run=true');
     const data = await r.json();
     if (data.ok) {
       renderSignals(data);
+      renderCerebro(data);   // v2.7.3: actualiza también el cerebro por par
       // actualizar también las tarjetas con la señal (action) de cada par
       for (const s of data.setups) {
         if (!pairStats[s.pair]) pairStats[s.pair] = {};
@@ -1375,7 +1392,10 @@ async function analyzeAllPairs(silent) {
     const rows = document.getElementById('signals-rows');
     if (rows) rows.innerHTML = '<tr><td colspan="10" class="empty">Error de conexión</td></tr>';
   } finally {
-    if (btn && !silent) { btn.classList.remove('btn-analyzing'); btn.textContent = '🔍 ANALIZAR 5 PARES'; }
+    if (!silent) {
+      if (btn)  { btn.classList.remove('btn-analyzing');  btn.textContent = '🔍 ANALIZAR 5 PARES'; }
+      if (btn2) { btn2.classList.remove('btn-analyzing'); btn2.textContent = '🔍 ANALIZAR 5 PARES'; }
+    }
   }
 }
 
@@ -1459,6 +1479,88 @@ function renderSignals(data) {
       <td style="color:var(--g);${dim}">${hayNiveles ? fmtP(s.tp1)+' / '+fmtP(s.tp2) : '--'}</td>
       <td style="${dim}">${hayNiveles && s.rr1 ? s.rr1.toFixed(1)+' / '+(s.rr2?s.rr2.toFixed(1):'--') : '--'}</td>
     </tr>${detalleRow}`;
+  }).join('');
+}
+
+// v2.7.3: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
+function renderCerebro(data) {
+  const cont = document.getElementById('cerebro-cards');
+  if (!cont) return;
+  if (!data.setups || !data.setups.length) {
+    cont.innerHTML = '<div class="empty">Sin datos de análisis.</div>';
+    return;
+  }
+  cont.innerHTML = data.setups.map(s => {
+    const info = PAIRS_INFO[s.pair] || {};
+    const col = pairColorFor(s.pair);
+    // Estado / badge superior
+    const estadoMap = {
+      'SENAL':         {txt:'🟢 SEÑAL',        c:'var(--g)'},
+      'ESPERAR':       {txt:'⏳ ESPERAR',      c:'var(--gold)'},
+      'SIN_SETUP':     {txt:'○ SIN SETUP',     c:'var(--t2)'},
+      'FUERA_KILLZONE':{txt:'🌙 FUERA KILLZONE',c:'var(--blue)'},
+      'SIN_DATOS':     {txt:'— SIN DATOS',     c:'var(--t3)'},
+    };
+    const est = estadoMap[s.estado] || {txt:s.estado, c:'var(--t2)'};
+
+    // 🐍 PYTHON block
+    const techAct = s.tech_action || '--';
+    const techActCol = techAct === 'BUY' ? 'var(--g)' : techAct === 'SELL' ? 'var(--r)' : 'var(--t2)';
+    const scoreCol = s.score >= s.min_score ? 'var(--g)' : s.score >= (s.min_score-10) ? 'var(--gold)' : 'var(--t2)';
+    const sweepTxt = s.sweep_detected ? ('sí · ' + (s.sweep_quality||'').toUpperCase()) : 'no detectado';
+    const sweepCol = s.sweep_detected ? 'var(--g)' : 'var(--t3)';
+
+    // 🧠 CLAUDE block
+    let claudeBody;
+    if (s.narrativa) {
+      claudeBody = '<div style="font-style:italic; color:var(--t); line-height:1.55">"' + s.narrativa + '"</div>';
+    } else if (s.claude_called) {
+      claudeBody = '<div style="color:var(--t2)">Claude analizó — sin observaciones que reportar.</div>';
+    } else {
+      claudeBody = '<div style="color:var(--t3)">Sin setup cerca del mínimo — Claude no fue consultado (ahorro de API).</div>';
+    }
+
+    // SESGO bar
+    const bull = s.bias_bull || 50;
+    const bear = s.bias_bear || 50;
+    const biasCol = bull >= 60 ? 'var(--g)' : bull <= 40 ? 'var(--r)' : 'var(--gold)';
+
+    return `
+    <div style="border:1px solid var(--b); border-left:3px solid ${col}; border-radius:7px; padding:13px 15px; margin-bottom:11px; background:var(--bg2)">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:11px">
+        <span style="font-family:'IBM Plex Mono'; font-size:14px; font-weight:700; color:${col}">${s.display}</span>
+        <span style="font-size:11px; font-weight:700; color:${est.c}">${est.txt}</span>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px">
+        <div style="border-right:1px solid var(--b); padding-right:12px">
+          <div style="font-size:9.5px; letter-spacing:0.1em; color:var(--g); margin-bottom:7px; font-weight:700">🐍 PYTHON · MOTOR TÉCNICO</div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; padding:2px 0"><span style="color:var(--t2)">Score</span><span style="color:${scoreCol}; font-weight:700">${s.score?s.score.toFixed(0):'0'}/100 <span style="color:var(--t3); font-weight:400">(mín ${s.min_score})</span></span></div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; padding:2px 0"><span style="color:var(--t2)">Sweep</span><span style="color:${sweepCol}">${sweepTxt}</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; padding:2px 0"><span style="color:var(--t2)">HTF bias</span><span style="color:var(--t)">${(s.htf_bias||'--').toUpperCase()} (${((s.htf_strength||0)*100).toFixed(0)}%)</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; padding:2px 0"><span style="color:var(--t2)">Régimen</span><span style="color:var(--t)">${(s.regime_type||'--').toUpperCase()}</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; padding:2px 0"><span style="color:var(--t2)">Killzone</span><span style="color:${s.killzone_ok?'var(--g)':'var(--r)'}">${s.killzone||'fuera'}${s.killzone_ok?'':' ✗'}</span></div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; padding:4px 0 2px; border-top:1px solid var(--b); margin-top:5px"><span style="color:var(--t2)">Acción técnica</span><span style="color:${techActCol}; font-weight:700">${techAct}</span></div>
+        </div>
+
+        <div>
+          <div style="font-size:9.5px; letter-spacing:0.1em; color:var(--purple); margin-bottom:7px; font-weight:700">🧠 CLAUDE · CAPA COGNITIVA</div>
+          <div style="font-size:11px; min-height:54px">${claudeBody}</div>
+        </div>
+      </div>
+
+      <div style="margin-top:11px; padding-top:10px; border-top:1px solid var(--b)">
+        <div style="display:flex; align-items:center; gap:10px; margin-bottom:7px">
+          <span style="font-size:9.5px; color:var(--t2); letter-spacing:0.05em">SESGO INDICADORES</span>
+          <div style="flex:1; height:7px; border-radius:4px; overflow:hidden; display:flex; background:var(--bg3)">
+            <div style="width:${bull}%; background:var(--g)"></div>
+            <div style="width:${bear}%; background:var(--r)"></div>
+          </div>
+          <span style="font-size:10px; color:${biasCol}; font-weight:700; font-family:'IBM Plex Mono'">${bull}% / ${bear}%</span>
+        </div>
+        <div style="font-size:10.5px; color:var(--t2); line-height:1.5"><strong style="color:var(--t)">Motivo:</strong> ${s.motivo || '--'}</div>
+      </div>
+    </div>`;
   }).join('');
 }
 
@@ -1569,7 +1671,7 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  // v2.7.2: pill-server se setea desde health (ver refreshAll), no desde d.server
+  // v2.7.3: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -1924,7 +2026,7 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
-    // v2.7.2: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    // v2.7.3: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
     setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
