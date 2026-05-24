@@ -756,7 +756,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.5</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.6</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -868,7 +868,7 @@ body {
   <!-- ==================== TAB: ICT ANALYSIS ==================== -->
   <div class="tab-content hidden" id="tab-ict">
 
-    <!-- v2.7.5: CEREBRO POR PAR (Python motor + Claude cognitive) -->
+    <!-- v2.7.6: CEREBRO POR PAR (Python motor + Claude cognitive) -->
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px">
         <div class="card-label" style="margin:0">🧠 CEREBRO DEL SISTEMA · ANÁLISIS POR PAR</div>
@@ -1223,7 +1223,7 @@ const API = (window.location.hostname.includes('railway.app'))
   : 'https://web-production-e3f5c.up.railway.app';
 
 // ============== PAIR SELECTOR (v2.7) ==============
-// v2.7.5: en memoria (no localStorage, que puede fallar según el contexto)
+// v2.7.6: en memoria (no localStorage, que puede fallar según el contexto)
 let currentPair = 'ALL';
 
 // v2.7: Registro central de pares (fuente única de verdad)
@@ -1280,7 +1280,7 @@ function initPairSelector() {
 // v2.7: cambio de par centralizado (selector + panel sincronizados)
 function setCurrentPair(pair) {
   currentPair = pair;
-  // v2.7.5: sin localStorage (memoria solamente)
+  // v2.7.6: sin localStorage (memoria solamente)
   const sel = document.getElementById('pair-selector');
   if (sel) sel.value = currentPair;
   document.getElementById('brand-subtitle').textContent = pairDisplay();
@@ -1362,7 +1362,7 @@ async function analyzeAllPairs(silent) {
     const data = await r.json();
     if (data.ok) {
       renderSignals(data);
-      renderCerebro(data);   // v2.7.5: actualiza también el cerebro por par
+      renderCerebro(data);   // v2.7.6: actualiza también el cerebro por par
       // actualizar también las tarjetas con la señal (action) de cada par
       for (const s of data.setups) {
         if (!pairStats[s.pair]) pairStats[s.pair] = {};
@@ -1468,7 +1468,7 @@ function renderSignals(data) {
   }).join('');
 }
 
-// v2.7.5: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
+// v2.7.6: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
 function renderCerebro(data) {
   const cont = document.getElementById('cerebro-cards');
   if (!cont) return;
@@ -1511,6 +1511,32 @@ function renderCerebro(data) {
     const bear = s.bias_bear || 50;
     const biasCol = bull >= 60 ? 'var(--g)' : bull <= 40 ? 'var(--r)' : 'var(--gold)';
 
+    // v2.7.6: desglose de los factores del score (de dónde sale el puntaje)
+    const FACTOR_NAMES = {
+      htf_alignment:'HTF alignment', sweep_quality:'Sweep quality', displacement:'Displacement',
+      inducement:'Inducement', bos_quality:'BOS quality', fvg_ob_quality:'FVG/OB quality',
+      session_quality:'Session quality', adr_remaining:'ADR remaining', volatility:'Volatility',
+      consolidation:'Consolidation'
+    };
+    const factors = s.factors || {};
+    const factorKeys = Object.keys(FACTOR_NAMES).filter(k => factors[k]);
+    let factorsHtml = '';
+    if (factorKeys.length) {
+      factorsHtml = factorKeys.map(k => {
+        const f = factors[k];
+        const pct = f.max > 0 ? (f.pts / f.max) * 100 : 0;
+        const fcol = pct >= 70 ? 'var(--g)' : pct >= 40 ? 'var(--gold)' : 'var(--r)';
+        return '<div style="display:flex; align-items:center; gap:8px; font-size:10px; padding:2px 0">' +
+          '<span style="width:120px; color:var(--t2)">' + FACTOR_NAMES[k] + '</span>' +
+          '<span style="width:42px; font-family:\'IBM Plex Mono\'; color:' + fcol + '">' + f.pts.toFixed(0) + '/' + f.max.toFixed(0) + '</span>' +
+          '<div style="flex:1; height:5px; border-radius:3px; background:var(--bg3); overflow:hidden"><div style="width:' + pct + '%; height:100%; background:' + fcol + '"></div></div>' +
+          '<span style="width:90px; text-align:right; color:var(--t3); font-size:9px">' + (f.tag||'') + '</span>' +
+          '</div>';
+      }).join('');
+    } else {
+      factorsHtml = '<div style="font-size:10px; color:var(--t3); font-style:italic">Sin factores calculados — se llenan tras un análisis con sweep detectado.</div>';
+    }
+
     return `
     <div style="border:1px solid var(--b); border-left:3px solid ${col}; border-radius:7px; padding:13px 15px; margin-bottom:11px; background:var(--bg2)">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:11px">
@@ -1545,6 +1571,10 @@ function renderCerebro(data) {
           <span style="font-size:10px; color:${biasCol}; font-weight:700; font-family:'IBM Plex Mono'">${bull}% / ${bear}%</span>
         </div>
         <div style="font-size:10.5px; color:var(--t2); line-height:1.5"><strong style="color:var(--t)">Motivo:</strong> ${s.motivo || '--'}</div>
+        <details style="margin-top:9px">
+          <summary style="cursor:pointer; font-size:10px; color:var(--gold); letter-spacing:0.04em; user-select:none">📊 Ver desglose del score (10 factores)</summary>
+          <div style="margin-top:9px; padding:9px 10px; background:var(--bg3); border-radius:5px">${factorsHtml}</div>
+        </details>
       </div>
     </div>`;
   }).join('');
@@ -1586,7 +1616,7 @@ const THEMES = {
 
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.7.5: protegido
+  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.7.6: protegido
   document.querySelectorAll('.theme-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === theme);
   });
@@ -1601,7 +1631,7 @@ document.querySelectorAll('.theme-btn').forEach(b => {
   b.onclick = () => setTheme(b.dataset.theme);
 });
 
-// Cargar tema guardado (v2.7.5: protegido por si localStorage falla)
+// Cargar tema guardado (v2.7.6: protegido por si localStorage falla)
 let savedTheme = 'dark';
 try { savedTheme = localStorage.getItem('tpdcm-theme') || 'dark'; } catch(e) {}
 setTheme(savedTheme);
@@ -1658,7 +1688,7 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  // v2.7.5: pill-server se setea desde health (ver refreshAll), no desde d.server
+  // v2.7.6: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -1919,7 +1949,7 @@ function renderTrades(d, liveTrades) {
       const units = parseInt(t.currentUnits || 0);
       const a = units > 0 ? 'BUY' : 'SELL';
       const pnl = parseFloat(t.unrealizedPL || 0);
-      // v2.7.5: instrumento OANDA (ej EUR_USD) para link al gráfico
+      // v2.7.6: instrumento OANDA (ej EUR_USD) para link al gráfico
       const inst = t.instrument || '';
       const oandaUrl = 'https://trade.oanda.com/';
       const aCol = a === 'BUY' ? 'var(--g)' : 'var(--r)';
@@ -2031,7 +2061,7 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
-    // v2.7.5: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    // v2.7.6: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
     setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
