@@ -756,7 +756,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.3</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.4</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -868,7 +868,7 @@ body {
   <!-- ==================== TAB: ICT ANALYSIS ==================== -->
   <div class="tab-content hidden" id="tab-ict">
 
-    <!-- v2.7.3: CEREBRO POR PAR (Python motor + Claude cognitive) -->
+    <!-- v2.7.4: CEREBRO POR PAR (Python motor + Claude cognitive) -->
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px">
         <div class="card-label" style="margin:0">🧠 CEREBRO DEL SISTEMA · ANÁLISIS POR PAR</div>
@@ -1079,27 +1079,12 @@ body {
 
   <!-- ==================== TAB: OPERACIONES ==================== -->
   <div class="tab-content hidden" id="tab-trades">
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-label">💼 TRADES ABIERTOS EN OANDA DEMO</div>
-      <div id="open-trades"><div class="empty">No hay trades abiertos</div></div>
-    </div>
-
-    <div class="card">
-      <div class="sec-header">
-        <div class="sec-title">📋 HISTORIAL DE TRADES EJECUTADOS</div>
-        <div style="font-size:10px;color:var(--t2)" id="trades-count">--</div>
+    <div class="card" style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px">
+      <div style="font-size:11px; color:var(--t2); line-height:1.5">
+        📈 <strong style="color:var(--t)">Ver gráficos en vivo:</strong> el sistema opera en OANDA, donde ves cada trade con su entrada, SL y TP ya dibujados, en todas las temporalidades.
       </div>
-      <div style="overflow-x:auto">
-        <table class="tbl">
-          <thead><tr>
-            <th>Fecha</th><th>Hora</th><th>Acción</th><th>Entry</th>
-            <th>Outcome</th><th>P&amp;L</th><th>Killzone</th><th>Score</th><th>Razón</th>
-          </tr></thead>
-          <tbody id="trades-rows"><tr><td colspan="9" class="empty">No hay trades ejecutados todavía</td></tr></tbody>
-        </table>
-      </div>
+      <a href="https://trade.oanda.com/" target="_blank" rel="noopener" style="background:var(--g); color:#06160d; text-decoration:none; border-radius:5px; padding:8px 16px; font-size:11px; font-weight:700; letter-spacing:0.03em; white-space:nowrap">Abrir OANDA ↗</a>
     </div>
-  </div>
     <div class="card" style="margin-bottom:12px">
       <div class="card-label">💼 TRADES ABIERTOS EN OANDA DEMO</div>
       <div id="open-trades"><div class="empty">No hay trades abiertos</div></div>
@@ -1376,7 +1361,7 @@ async function analyzeAllPairs(silent) {
     const data = await r.json();
     if (data.ok) {
       renderSignals(data);
-      renderCerebro(data);   // v2.7.3: actualiza también el cerebro por par
+      renderCerebro(data);   // v2.7.4: actualiza también el cerebro por par
       // actualizar también las tarjetas con la señal (action) de cada par
       for (const s of data.setups) {
         if (!pairStats[s.pair]) pairStats[s.pair] = {};
@@ -1482,7 +1467,7 @@ function renderSignals(data) {
   }).join('');
 }
 
-// v2.7.3: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
+// v2.7.4: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
 function renderCerebro(data) {
   const cont = document.getElementById('cerebro-cards');
   if (!cont) return;
@@ -1671,7 +1656,7 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  // v2.7.3: pill-server se setea desde health (ver refreshAll), no desde d.server
+  // v2.7.4: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -1932,8 +1917,26 @@ function renderTrades(d, liveTrades) {
       const units = parseInt(t.currentUnits || 0);
       const a = units > 0 ? 'BUY' : 'SELL';
       const pnl = parseFloat(t.unrealizedPL || 0);
-      return '<div class="kv"><span class="k">ID ' + t.id + ' · ' + a + '</span>' +
-        '<span class="v ' + (pnl >= 0 ? 'g' : 'r') + '">' + fmtUsd(pnl) + '</span></div>';
+      // v2.7.4: instrumento OANDA (ej EUR_USD) para link al gráfico
+      const inst = t.instrument || '';
+      const oandaUrl = 'https://trade.oanda.com/';
+      const aCol = a === 'BUY' ? 'var(--g)' : 'var(--r)';
+      // Niveles del trade: entrada, SL, TP (vienen de OANDA en la posición)
+      const entry = t.price ? fmt(parseFloat(t.price)) : '--';
+      const slPrice = (t.stopLossOrder && t.stopLossOrder.price) ? fmt(parseFloat(t.stopLossOrder.price)) : '--';
+      const tpPrice = (t.takeProfitOrder && t.takeProfitOrder.price) ? fmt(parseFloat(t.takeProfitOrder.price)) : '--';
+      return '<div style="border:1px solid var(--b); border-radius:7px; padding:12px 14px; margin-bottom:10px; background:var(--bg2)">' +
+        '<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px">' +
+          '<span style="font-family:\'IBM Plex Mono\'; font-weight:700; font-size:13px">' + (inst.replace('_','/') || ('ID '+t.id)) + ' · <span style="color:' + aCol + '">' + a + '</span></span>' +
+          '<span style="font-weight:700; color:' + (pnl >= 0 ? 'var(--g)' : 'var(--r)') + '">' + fmtUsd(pnl) + '</span>' +
+        '</div>' +
+        '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:8px; font-size:11px; margin-bottom:10px">' +
+          '<div><span style="color:var(--t2)">Entrada</span><br><span class="b" style="font-family:\'IBM Plex Mono\'">' + entry + '</span></div>' +
+          '<div><span style="color:var(--r)">SL</span><br><span style="font-family:\'IBM Plex Mono\'; color:var(--r)">' + slPrice + '</span></div>' +
+          '<div><span style="color:var(--g)">TP</span><br><span style="font-family:\'IBM Plex Mono\'; color:var(--g)">' + tpPrice + '</span></div>' +
+        '</div>' +
+        '<a href="' + oandaUrl + '" target="_blank" rel="noopener" style="display:inline-block; background:var(--g); color:#06160d; text-decoration:none; border-radius:5px; padding:6px 14px; font-size:11px; font-weight:700; letter-spacing:0.03em">📈 Ver en OANDA (gráfico + SL/TP en vivo)</a>' +
+        '</div>';
     }).join('');
   }
 
@@ -2026,7 +2029,7 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
-    // v2.7.3: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    // v2.7.4: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
     setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
