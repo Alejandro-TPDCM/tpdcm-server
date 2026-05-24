@@ -756,7 +756,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.6</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.7</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -776,6 +776,9 @@ body {
         </table>
       </div>
     </div>
+
+    <!-- v2.7.7: aviso claro cuando no hay análisis fresco del par -->
+    <div id="dash-empty-notice" style="display:none; font-size:11.5px; color:var(--t); background:var(--bg2); border-left:3px solid var(--gold); border-radius:5px; padding:11px 14px; margin-bottom:14px; line-height:1.6"></div>
 
     <div class="grid grid-2" style="margin-bottom:12px">
       <div class="card featured">
@@ -868,7 +871,7 @@ body {
   <!-- ==================== TAB: ICT ANALYSIS ==================== -->
   <div class="tab-content hidden" id="tab-ict">
 
-    <!-- v2.7.6: CEREBRO POR PAR (Python motor + Claude cognitive) -->
+    <!-- v2.7.7: CEREBRO POR PAR (Python motor + Claude cognitive) -->
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px">
         <div class="card-label" style="margin:0">🧠 CEREBRO DEL SISTEMA · ANÁLISIS POR PAR</div>
@@ -1223,7 +1226,7 @@ const API = (window.location.hostname.includes('railway.app'))
   : 'https://web-production-e3f5c.up.railway.app';
 
 // ============== PAIR SELECTOR (v2.7) ==============
-// v2.7.6: en memoria (no localStorage, que puede fallar según el contexto)
+// v2.7.7: en memoria (no localStorage, que puede fallar según el contexto)
 let currentPair = 'ALL';
 
 // v2.7: Registro central de pares (fuente única de verdad)
@@ -1280,12 +1283,14 @@ function initPairSelector() {
 // v2.7: cambio de par centralizado (selector + panel sincronizados)
 function setCurrentPair(pair) {
   currentPair = pair;
-  // v2.7.6: sin localStorage (memoria solamente)
+  // v2.7.7: sin localStorage (memoria solamente)
   const sel = document.getElementById('pair-selector');
   if (sel) sel.value = currentPair;
   document.getElementById('brand-subtitle').textContent = pairDisplay();
   renderPortfolioStrip();
   if (typeof refreshAll === 'function') refreshAll();
+  // v2.7.7: si ese par no tiene datos frescos, analizar (sin spamear)
+  if (typeof smartInitAnalysis === 'function') smartInitAnalysis();
 }
 
 // v2.7: estadísticas en vivo por par (se llenan desde loadBacktest si hay datos)
@@ -1362,7 +1367,7 @@ async function analyzeAllPairs(silent) {
     const data = await r.json();
     if (data.ok) {
       renderSignals(data);
-      renderCerebro(data);   // v2.7.6: actualiza también el cerebro por par
+      renderCerebro(data);   // v2.7.7: actualiza también el cerebro por par
       // actualizar también las tarjetas con la señal (action) de cada par
       for (const s of data.setups) {
         if (!pairStats[s.pair]) pairStats[s.pair] = {};
@@ -1468,7 +1473,7 @@ function renderSignals(data) {
   }).join('');
 }
 
-// v2.7.6: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
+// v2.7.7: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
 function renderCerebro(data) {
   const cont = document.getElementById('cerebro-cards');
   if (!cont) return;
@@ -1511,7 +1516,7 @@ function renderCerebro(data) {
     const bear = s.bias_bear || 50;
     const biasCol = bull >= 60 ? 'var(--g)' : bull <= 40 ? 'var(--r)' : 'var(--gold)';
 
-    // v2.7.6: desglose de los factores del score (de dónde sale el puntaje)
+    // v2.7.7: desglose de los factores del score (de dónde sale el puntaje)
     const FACTOR_NAMES = {
       htf_alignment:'HTF alignment', sweep_quality:'Sweep quality', displacement:'Displacement',
       inducement:'Inducement', bos_quality:'BOS quality', fvg_ob_quality:'FVG/OB quality',
@@ -1616,7 +1621,7 @@ const THEMES = {
 
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.7.6: protegido
+  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.7.7: protegido
   document.querySelectorAll('.theme-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === theme);
   });
@@ -1631,7 +1636,7 @@ document.querySelectorAll('.theme-btn').forEach(b => {
   b.onclick = () => setTheme(b.dataset.theme);
 });
 
-// Cargar tema guardado (v2.7.6: protegido por si localStorage falla)
+// Cargar tema guardado (v2.7.7: protegido por si localStorage falla)
 let savedTheme = 'dark';
 try { savedTheme = localStorage.getItem('tpdcm-theme') || 'dark'; } catch(e) {}
 setTheme(savedTheme);
@@ -1688,7 +1693,24 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  // v2.7.6: pill-server se setea desde health (ver refreshAll), no desde d.server
+  // v2.7.7: aviso claro si NO hay análisis fresco (en vez de "--" mudos)
+  const sinAnalisis = !ict || Object.keys(ict).length === 0 || !d.ts;
+  const avisoEl = document.getElementById('dash-empty-notice');
+  if (avisoEl) {
+    if (sinAnalisis) {
+      const ageMin = d.ts ? Math.round((Date.now() - new Date(d.ts).getTime())/60000) : null;
+      avisoEl.style.display = 'block';
+      avisoEl.innerHTML = '🌙 <strong>Sin análisis reciente de este par.</strong> ' +
+        'El sistema escanea automáticamente durante sesión (London 3-5 AM · NY 8-11 AM, hora Miami). ' +
+        'Fuera de sesión, los datos quedan en espera. ' +
+        'Podés forzar un análisis ahora con el botón <strong>"🔍 ANALIZAR 5 PARES"</strong> en la pestaña ICT ANALYSIS.' +
+        (ageMin !== null ? ' <span style="color:var(--t3)">(último análisis hace ' + ageMin + ' min)</span>' : '');
+    } else {
+      avisoEl.style.display = 'none';
+    }
+  }
+
+  // v2.7.7: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -1949,7 +1971,7 @@ function renderTrades(d, liveTrades) {
       const units = parseInt(t.currentUnits || 0);
       const a = units > 0 ? 'BUY' : 'SELL';
       const pnl = parseFloat(t.unrealizedPL || 0);
-      // v2.7.6: instrumento OANDA (ej EUR_USD) para link al gráfico
+      // v2.7.7: instrumento OANDA (ej EUR_USD) para link al gráfico
       const inst = t.instrument || '';
       const oandaUrl = 'https://trade.oanda.com/';
       const aCol = a === 'BUY' ? 'var(--g)' : 'var(--r)';
@@ -2061,11 +2083,26 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
-    // v2.7.6: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    // v2.7.7: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
     setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
   if (d) {
+    // v2.7.7: NORMALIZAR estructura. El endpoint /dashboard devuelve
+    // { state, last_analysis:{ict,price,ts}, last_decision }. Pero las
+    // funciones render esperan d.ict, d.decision, d.ts en el nivel raíz.
+    // Esto causaba que muchas secciones salieran vacías ("--").
+    const an = d.last_analysis || {};
+    d.ict = an.ict || {};
+    d.decision = d.last_decision || {};
+    d.ts = an.ts || d.ts || null;
+    d.price = an.price || 0;
+    // pasar también el estado (balance, risk, etc.) al nivel raíz si hace falta
+    if (d.state) {
+      d.open_trades = d.open_trades || d.state.open_trades || [];
+      d.risk_pct = d.state.risk_pct_current;
+    }
+
     $('hdr-time').textContent = d.ts ? new Date(d.ts).toLocaleTimeString() : '--';
     renderDashboard(d);
     renderICT(d);
@@ -2754,7 +2791,28 @@ function renderTrendsAndPatterns(history) {
   document.getElementById('patterns-summary').innerHTML = patternsHtml;
 }
 
+// v2.7.7: arranque con análisis automático inteligente
+// Si los datos del análisis están viejos o no existen, dispara un análisis
+// fresco UNA vez al cargar, para que el dashboard no se vea vacío.
+let lastAutoAnalysis = 0;
+const AUTO_ANALYSIS_STALE_MIN = 10; // si datos > 10 min, re-analiza
+
+async function smartInitAnalysis() {
+  try {
+    const d = await fetchJSON('/dashboard' + pairParam());
+    const ts = d && d.last_analysis && d.last_analysis.ts ? new Date(d.last_analysis.ts).getTime() : 0;
+    const ageMin = ts ? (Date.now() - ts) / 60000 : 9999;
+    // Si no hay análisis o está viejo, forzar uno fresco (silencioso)
+    if (ageMin > AUTO_ANALYSIS_STALE_MIN) {
+      lastAutoAnalysis = Date.now();
+      await analyzeAllPairs(true); // silent
+      await refreshAll();
+    }
+  } catch (e) { /* si falla, el refreshAll normal igual corre */ }
+}
+
 refreshAll();
+smartInitAnalysis();
 setInterval(refreshAll, 60000);
 </script>
 </body>
