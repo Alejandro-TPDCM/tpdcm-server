@@ -756,7 +756,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.8</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.9</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -777,7 +777,7 @@ body {
       </div>
     </div>
 
-    <!-- v2.7.8: aviso claro cuando no hay análisis fresco del par -->
+    <!-- v2.7.9: aviso claro cuando no hay análisis fresco del par -->
     <div id="dash-empty-notice" style="display:none; font-size:11.5px; color:var(--t); background:var(--bg2); border-left:3px solid var(--gold); border-radius:5px; padding:11px 14px; margin-bottom:14px; line-height:1.6"></div>
 
     <div class="grid grid-2" style="margin-bottom:12px">
@@ -917,7 +917,7 @@ body {
   <!-- ==================== TAB: ICT ANALYSIS ==================== -->
   <div class="tab-content hidden" id="tab-ict">
 
-    <!-- v2.7.8: CEREBRO POR PAR (Python motor + Claude cognitive) -->
+    <!-- v2.7.9: CEREBRO POR PAR (Python motor + Claude cognitive) -->
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px">
         <div class="card-label" style="margin:0">🧠 CEREBRO DEL SISTEMA · ANÁLISIS POR PAR</div>
@@ -1097,12 +1097,23 @@ body {
       </div>
     </div>
 
-    <!-- HISTORIAL DE NARRATIVAS -->
+    <!-- HISTORIAL DE NARRATIVAS / VETOS -->
     <div class="card" style="margin-bottom:12px">
       <div class="sec-header">
-        <div class="sec-title">📋 HISTORIAL DE NARRATIVAS DE CLAUDE (últimos 30 análisis)</div>
+        <div class="sec-title">⚖️ HISTORIAL DE VETOS Y VALIDACIONES DE CLAUDE</div>
         <button class="btn" onclick="loadClaudeHistory()" style="font-size:10px">↻ Refrescar</button>
       </div>
+      <details style="margin-bottom:10px">
+        <summary style="cursor:pointer; font-size:9.5px; color:var(--gold); user-select:none; letter-spacing:0.03em">❔ ¿Qué es esto?</summary>
+        <div style="margin-top:7px; padding:9px 10px; background:var(--bg3); border-radius:5px; font-size:10px; color:var(--t2); line-height:1.6">
+          Cada vez que Python encuentra un setup válido (con sweep), le pregunta a Claude si el contexto es bueno. Acá ves esas decisiones:<br>
+          <strong style="color:var(--g)">✓ VALIDADO</strong> = Claude aprobó el setup (el trade puede ir).<br>
+          <strong style="color:var(--gold)">⚠️ VETADO</strong> = Claude lo rechazó por contexto desfavorable (no se opera).<br>
+          <strong style="color:var(--t)">Mult (multiplier):</strong> cuánto ajustó Claude la confianza (1.0 = sin cambio, 0.5 = mucha cautela).<br>
+          <strong style="color:var(--blue)">📊</strong> = la lectura de Claude sobre el régimen de mercado.<br>
+          <em style="color:var(--t3)">Estará vacío hasta que aparezcan setups con sweep (en sesión). Es normal.</em>
+        </div>
+      </details>
       <div id="claude-narrative-history" style="max-height:400px; overflow-y:auto">
         <div class="empty">Cargando historial de análisis...</div>
       </div>
@@ -1272,7 +1283,7 @@ const API = (window.location.hostname.includes('railway.app'))
   : 'https://web-production-e3f5c.up.railway.app';
 
 // ============== PAIR SELECTOR (v2.7) ==============
-// v2.7.8: en memoria (no localStorage, que puede fallar según el contexto)
+// v2.7.9: en memoria (no localStorage, que puede fallar según el contexto)
 let currentPair = 'ALL';
 
 // v2.7: Registro central de pares (fuente única de verdad)
@@ -1329,13 +1340,13 @@ function initPairSelector() {
 // v2.7: cambio de par centralizado (selector + panel sincronizados)
 function setCurrentPair(pair) {
   currentPair = pair;
-  // v2.7.8: sin localStorage (memoria solamente)
+  // v2.7.9: sin localStorage (memoria solamente)
   const sel = document.getElementById('pair-selector');
   if (sel) sel.value = currentPair;
   document.getElementById('brand-subtitle').textContent = pairDisplay();
   renderPortfolioStrip();
   if (typeof refreshAll === 'function') refreshAll();
-  // v2.7.8: si ese par no tiene datos frescos, analizar (sin spamear)
+  // v2.7.9: si ese par no tiene datos frescos, analizar (sin spamear)
   if (typeof smartInitAnalysis === 'function') smartInitAnalysis();
 }
 
@@ -1413,7 +1424,7 @@ async function analyzeAllPairs(silent) {
     const data = await r.json();
     if (data.ok) {
       renderSignals(data);
-      renderCerebro(data);   // v2.7.8: actualiza también el cerebro por par
+      renderCerebro(data);   // v2.7.9: actualiza también el cerebro por par
       // actualizar también las tarjetas con la señal (action) de cada par
       for (const s of data.setups) {
         if (!pairStats[s.pair]) pairStats[s.pair] = {};
@@ -1519,7 +1530,7 @@ function renderSignals(data) {
   }).join('');
 }
 
-// v2.7.8: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
+// v2.7.9: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
 function renderCerebro(data) {
   const cont = document.getElementById('cerebro-cards');
   if (!cont) return;
@@ -1562,7 +1573,7 @@ function renderCerebro(data) {
     const bear = s.bias_bear || 50;
     const biasCol = bull >= 60 ? 'var(--g)' : bull <= 40 ? 'var(--r)' : 'var(--gold)';
 
-    // v2.7.8: desglose de los factores del score (de dónde sale el puntaje)
+    // v2.7.9: desglose de los factores del score (de dónde sale el puntaje)
     const FACTOR_NAMES = {
       htf_alignment:'HTF alignment', sweep_quality:'Sweep quality', displacement:'Displacement',
       inducement:'Inducement', bos_quality:'BOS quality', fvg_ob_quality:'FVG/OB quality',
@@ -1667,7 +1678,7 @@ const THEMES = {
 
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.7.8: protegido
+  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.7.9: protegido
   document.querySelectorAll('.theme-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === theme);
   });
@@ -1682,7 +1693,7 @@ document.querySelectorAll('.theme-btn').forEach(b => {
   b.onclick = () => setTheme(b.dataset.theme);
 });
 
-// Cargar tema guardado (v2.7.8: protegido por si localStorage falla)
+// Cargar tema guardado (v2.7.9: protegido por si localStorage falla)
 let savedTheme = 'dark';
 try { savedTheme = localStorage.getItem('tpdcm-theme') || 'dark'; } catch(e) {}
 setTheme(savedTheme);
@@ -1739,7 +1750,7 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  // v2.7.8: aviso claro si NO hay análisis fresco (en vez de "--" mudos)
+  // v2.7.9: aviso claro si NO hay análisis fresco (en vez de "--" mudos)
   const sinAnalisis = !ict || Object.keys(ict).length === 0 || !d.ts;
   const avisoEl = document.getElementById('dash-empty-notice');
   if (avisoEl) {
@@ -1756,7 +1767,7 @@ function renderDashboard(d) {
     }
   }
 
-  // v2.7.8: pill-server se setea desde health (ver refreshAll), no desde d.server
+  // v2.7.9: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -2017,7 +2028,7 @@ function renderTrades(d, liveTrades) {
       const units = parseInt(t.currentUnits || 0);
       const a = units > 0 ? 'BUY' : 'SELL';
       const pnl = parseFloat(t.unrealizedPL || 0);
-      // v2.7.8: instrumento OANDA (ej EUR_USD) para link al gráfico
+      // v2.7.9: instrumento OANDA (ej EUR_USD) para link al gráfico
       const inst = t.instrument || '';
       const oandaUrl = 'https://trade.oanda.com/';
       const aCol = a === 'BUY' ? 'var(--g)' : 'var(--r)';
@@ -2129,12 +2140,12 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
-    // v2.7.8: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    // v2.7.9: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
     setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
   if (d) {
-    // v2.7.8: NORMALIZAR estructura. El endpoint /dashboard devuelve
+    // v2.7.9: NORMALIZAR estructura. El endpoint /dashboard devuelve
     // { state, last_analysis:{ict,price,ts}, last_decision }. Pero las
     // funciones render esperan d.ict, d.decision, d.ts en el nivel raíz.
     // Esto causaba que muchas secciones salieran vacías ("--").
@@ -2736,36 +2747,46 @@ async function loadClaudeHistory() {
     }
 
     // Última narrativa destacada
+    // v2.7.9: campos del legacy_entry con fallback (action/score/ceo_reason/ceo_macro)
     const last = history[0];
     document.getElementById('claude-last-ts').textContent =
-      last.timestamp_et ? new Date(last.timestamp_et).toLocaleString() : '--';
+      last.timestamp_et ? new Date(last.timestamp_et).toLocaleString() :
+      (last.timestamp ? new Date(last.timestamp).toLocaleString() : '--');
+    const lastNarr = last.narrative || last.ceo_reason || '';
     document.getElementById('claude-last-narrative').textContent =
-      last.narrative ? '"' + last.narrative + '"' : 'Sin narrativa';
+      lastNarr ? '"' + lastNarr + '"' : 'Sin narrativa';
     document.getElementById('claude-last-narrative').classList.remove('empty');
-    document.getElementById('claude-last-action').textContent = last.technical_action || '--';
-    document.getElementById('claude-last-score').textContent = last.technical_score ? last.technical_score.toFixed(0) + '/100' : '--';
+    document.getElementById('claude-last-action').textContent = last.technical_action || last.action || '--';
+    const lastScore = last.technical_score != null ? last.technical_score : last.score;
+    document.getElementById('claude-last-score').textContent = lastScore != null ? lastScore.toFixed(0) + '/100' : '--';
     document.getElementById('claude-last-veto').textContent = last.cognitive_veto ? 'SÍ' : 'NO';
     document.getElementById('claude-last-veto').style.color = last.cognitive_veto ? 'var(--r)' : 'var(--g)';
     document.getElementById('claude-last-mult').textContent = last.cognitive_multiplier ? last.cognitive_multiplier.toFixed(2) + 'x' : '--';
 
     const regimeBadge = document.getElementById('claude-last-regime');
-    regimeBadge.textContent = (last.regime_assessment || 'Sin regime').toUpperCase().slice(0, 30);
+    regimeBadge.textContent = (last.regime_assessment || last.ceo_macro || 'Sin regime').toUpperCase().slice(0, 30);
 
     // Histórico expandible
-    document.getElementById('claude-narrative-history').innerHTML = history.map(h => {
+    document.getElementById('claude-narrative-history').innerHTML = history.slice().reverse().map(h => {
       const veto = h.cognitive_veto;
-      const time = h.timestamp_et ? new Date(h.timestamp_et).toLocaleString() : '--';
+      const time = h.timestamp_et ? new Date(h.timestamp_et).toLocaleString() :
+                   (h.timestamp ? new Date(h.timestamp).toLocaleString() : '--');
+      const act = h.technical_action || h.action || '--';
+      const sc = h.technical_score != null ? h.technical_score : (h.score || 0);
+      const narr = h.narrative || h.ceo_reason || 'Sin narrativa';
+      const regimeAssess = h.regime_assessment || h.ceo_macro || '';
       const borderColor = veto ? 'var(--gold)' : 'var(--g)';
       return '<div style="padding:10px 12px; margin-bottom:8px; background:var(--bg2); border-left:3px solid ' + borderColor + '; border-radius:4px">' +
         '<div style="display:flex; gap:10px; align-items:baseline; margin-bottom:6px; flex-wrap:wrap">' +
         '<span style="font-family:\'IBM Plex Mono\'; font-size:10px; color:var(--t2)">' + time + '</span>' +
-        '<span style="color:' + (h.technical_action === 'BUY' ? 'var(--g)' : h.technical_action === 'SELL' ? 'var(--r)' : 'var(--gold)') + '; font-weight:700; font-family:\'IBM Plex Mono\'; font-size:10px">' + (h.technical_action || '--') + '</span>' +
-        '<span style="font-size:10px; color:var(--t2)">Score: <strong style="color:var(--t)">' + (h.technical_score || 0).toFixed(0) + '</strong></span>' +
+        (h.pair ? '<span style="font-size:10px; color:var(--t); font-weight:700">' + (h.pair||'').replace('_','/') + '</span>' : '') +
+        '<span style="color:' + (act === 'BUY' ? 'var(--g)' : act === 'SELL' ? 'var(--r)' : 'var(--gold)') + '; font-weight:700; font-family:\'IBM Plex Mono\'; font-size:10px">' + act + '</span>' +
+        '<span style="font-size:10px; color:var(--t2)">Score: <strong style="color:var(--t)">' + (typeof sc==='number'?sc.toFixed(0):sc) + '</strong></span>' +
         (veto ? '<span style="font-size:10px; color:var(--gold)">⚠️ VETADO</span>' : '<span style="font-size:10px; color:var(--g)">✓ VALIDADO</span>') +
         (h.cognitive_multiplier ? '<span style="font-size:10px; color:var(--t2)">Mult: <strong style="color:var(--gold)">' + h.cognitive_multiplier.toFixed(2) + 'x</strong></span>' : '') +
         '</div>' +
-        '<div style="font-size:11px; color:var(--t); font-style:italic; line-height:1.6; font-family:\'IBM Plex Mono\'">"' + (h.narrative || 'Sin narrativa') + '"</div>' +
-        (h.regime_assessment ? '<div style="font-size:10px; color:var(--blue); margin-top:6px">📊 ' + h.regime_assessment + '</div>' : '') +
+        '<div style="font-size:11px; color:var(--t); font-style:italic; line-height:1.6; font-family:\'IBM Plex Mono\'">"' + narr + '"</div>' +
+        (regimeAssess ? '<div style="font-size:10px; color:var(--blue); margin-top:6px">📊 ' + regimeAssess + '</div>' : '') +
         '</div>';
     }).join('');
 
@@ -2837,7 +2858,7 @@ function renderTrendsAndPatterns(history) {
   document.getElementById('patterns-summary').innerHTML = patternsHtml;
 }
 
-// v2.7.8: arranque con análisis automático inteligente
+// v2.7.9: arranque con análisis automático inteligente
 // Si los datos del análisis están viejos o no existen, dispara un análisis
 // fresco UNA vez al cargar, para que el dashboard no se vea vacío.
 let lastAutoAnalysis = 0;
