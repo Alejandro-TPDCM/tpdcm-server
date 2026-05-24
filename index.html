@@ -756,7 +756,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.4</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.5</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -868,7 +868,7 @@ body {
   <!-- ==================== TAB: ICT ANALYSIS ==================== -->
   <div class="tab-content hidden" id="tab-ict">
 
-    <!-- v2.7.4: CEREBRO POR PAR (Python motor + Claude cognitive) -->
+    <!-- v2.7.5: CEREBRO POR PAR (Python motor + Claude cognitive) -->
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px">
         <div class="card-label" style="margin:0">🧠 CEREBRO DEL SISTEMA · ANÁLISIS POR PAR</div>
@@ -1223,7 +1223,8 @@ const API = (window.location.hostname.includes('railway.app'))
   : 'https://web-production-e3f5c.up.railway.app';
 
 // ============== PAIR SELECTOR (v2.7) ==============
-let currentPair = localStorage.getItem('tpdcm_pair') || 'ALL';
+// v2.7.5: en memoria (no localStorage, que puede fallar según el contexto)
+let currentPair = 'ALL';
 
 // v2.7: Registro central de pares (fuente única de verdad)
 // color = variable CSS; session = sesión permitida; tier = calidad
@@ -1279,7 +1280,7 @@ function initPairSelector() {
 // v2.7: cambio de par centralizado (selector + panel sincronizados)
 function setCurrentPair(pair) {
   currentPair = pair;
-  localStorage.setItem('tpdcm_pair', currentPair);
+  // v2.7.5: sin localStorage (memoria solamente)
   const sel = document.getElementById('pair-selector');
   if (sel) sel.value = currentPair;
   document.getElementById('brand-subtitle').textContent = pairDisplay();
@@ -1361,7 +1362,7 @@ async function analyzeAllPairs(silent) {
     const data = await r.json();
     if (data.ok) {
       renderSignals(data);
-      renderCerebro(data);   // v2.7.4: actualiza también el cerebro por par
+      renderCerebro(data);   // v2.7.5: actualiza también el cerebro por par
       // actualizar también las tarjetas con la señal (action) de cada par
       for (const s of data.setups) {
         if (!pairStats[s.pair]) pairStats[s.pair] = {};
@@ -1467,7 +1468,7 @@ function renderSignals(data) {
   }).join('');
 }
 
-// v2.7.4: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
+// v2.7.5: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
 function renderCerebro(data) {
   const cont = document.getElementById('cerebro-cards');
   if (!cont) return;
@@ -1585,7 +1586,7 @@ const THEMES = {
 
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  localStorage.setItem('tpdcm-theme', theme);
+  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.7.5: protegido
   document.querySelectorAll('.theme-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === theme);
   });
@@ -1600,8 +1601,9 @@ document.querySelectorAll('.theme-btn').forEach(b => {
   b.onclick = () => setTheme(b.dataset.theme);
 });
 
-// Cargar tema guardado
-const savedTheme = localStorage.getItem('tpdcm-theme') || 'dark';
+// Cargar tema guardado (v2.7.5: protegido por si localStorage falla)
+let savedTheme = 'dark';
+try { savedTheme = localStorage.getItem('tpdcm-theme') || 'dark'; } catch(e) {}
 setTheme(savedTheme);
 
 // ============== TAB SWITCHING ==============
@@ -1656,7 +1658,7 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  // v2.7.4: pill-server se setea desde health (ver refreshAll), no desde d.server
+  // v2.7.5: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -1917,7 +1919,7 @@ function renderTrades(d, liveTrades) {
       const units = parseInt(t.currentUnits || 0);
       const a = units > 0 ? 'BUY' : 'SELL';
       const pnl = parseFloat(t.unrealizedPL || 0);
-      // v2.7.4: instrumento OANDA (ej EUR_USD) para link al gráfico
+      // v2.7.5: instrumento OANDA (ej EUR_USD) para link al gráfico
       const inst = t.instrument || '';
       const oandaUrl = 'https://trade.oanda.com/';
       const aCol = a === 'BUY' ? 'var(--g)' : 'var(--r)';
@@ -2029,7 +2031,7 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
-    // v2.7.4: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    // v2.7.5: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
     setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
