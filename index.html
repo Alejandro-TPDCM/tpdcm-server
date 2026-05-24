@@ -741,6 +741,7 @@ body {
     <button class="tab" data-tab="regime">RÉGIMEN &amp; COGNITIVE</button>
     <button class="tab" data-tab="claude-chat">🧠 ANÁLISIS CLAUDE</button>
     <button class="tab" data-tab="trades">OPERACIONES</button>
+    <button class="tab" data-tab="news">📰 NOTICIAS</button>
     <button class="tab" data-tab="memory">MEMORIA</button>
     <button class="tab" data-tab="backtest">BACKTESTING</button>
   </div>
@@ -756,7 +757,7 @@ body {
     <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.7.9</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.8.0</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -777,7 +778,7 @@ body {
       </div>
     </div>
 
-    <!-- v2.7.9: aviso claro cuando no hay análisis fresco del par -->
+    <!-- v2.8.0: aviso claro cuando no hay análisis fresco del par -->
     <div id="dash-empty-notice" style="display:none; font-size:11.5px; color:var(--t); background:var(--bg2); border-left:3px solid var(--gold); border-radius:5px; padding:11px 14px; margin-bottom:14px; line-height:1.6"></div>
 
     <div class="grid grid-2" style="margin-bottom:12px">
@@ -917,7 +918,7 @@ body {
   <!-- ==================== TAB: ICT ANALYSIS ==================== -->
   <div class="tab-content hidden" id="tab-ict">
 
-    <!-- v2.7.9: CEREBRO POR PAR (Python motor + Claude cognitive) -->
+    <!-- v2.8.0: CEREBRO POR PAR (Python motor + Claude cognitive) -->
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px">
         <div class="card-label" style="margin:0">🧠 CEREBRO DEL SISTEMA · ANÁLISIS POR PAR</div>
@@ -1167,6 +1168,29 @@ body {
     </div>
   </div>
 
+  <!-- ==================== TAB: NOTICIAS ==================== -->
+  <div class="tab-content hidden" id="tab-news">
+    <div class="card" style="margin-bottom:12px">
+      <div class="sec-header">
+        <div class="sec-title">📰 CALENDARIO ECONÓMICO · ESTA SEMANA</div>
+        <button class="btn" onclick="loadNews()" style="font-size:10px">↻ Refrescar</button>
+      </div>
+      <div style="font-size:11px; color:var(--t2); line-height:1.5; margin-bottom:12px">
+        Eventos económicos de alto impacto que mueven el mercado. El sistema evita operar cerca de noticias USD/EUR de alto impacto. Datos de Forex Factory, hora en ET (Miami).
+      </div>
+      <!-- filtros -->
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:14px; align-items:center">
+        <span style="font-size:10px; color:var(--t2); letter-spacing:0.05em">IMPACTO:</span>
+        <button class="news-filter active" data-impact="all" onclick="setNewsFilter('all')" style="background:var(--g); color:#06160d; border:none; border-radius:4px; padding:5px 12px; font-family:inherit; font-size:10px; font-weight:700; cursor:pointer">Todos</button>
+        <button class="news-filter" data-impact="high" onclick="setNewsFilter('high')" style="background:var(--bg2); color:var(--r); border:1px solid var(--r); border-radius:4px; padding:5px 12px; font-family:inherit; font-size:10px; font-weight:700; cursor:pointer">🔴 Alto</button>
+        <button class="news-filter" data-impact="medium" onclick="setNewsFilter('medium')" style="background:var(--bg2); color:var(--gold); border:1px solid var(--gold); border-radius:4px; padding:5px 12px; font-family:inherit; font-size:10px; font-weight:700; cursor:pointer">🟠 Medio</button>
+        <button class="news-filter" data-impact="low" onclick="setNewsFilter('low')" style="background:var(--bg2); color:var(--t2); border:1px solid var(--b); border-radius:4px; padding:5px 12px; font-family:inherit; font-size:10px; font-weight:700; cursor:pointer">⚪ Bajo</button>
+        <span id="news-ts" style="font-size:9px; color:var(--t3); margin-left:auto">--</span>
+      </div>
+      <div id="news-list"><div class="empty">Cargando calendario económico...</div></div>
+    </div>
+  </div>
+
   <!-- ==================== TAB: MEMORIA ==================== -->
   <div class="tab-content hidden" id="tab-memory">
 
@@ -1283,7 +1307,7 @@ const API = (window.location.hostname.includes('railway.app'))
   : 'https://web-production-e3f5c.up.railway.app';
 
 // ============== PAIR SELECTOR (v2.7) ==============
-// v2.7.9: en memoria (no localStorage, que puede fallar según el contexto)
+// v2.8.0: en memoria (no localStorage, que puede fallar según el contexto)
 let currentPair = 'ALL';
 
 // v2.7: Registro central de pares (fuente única de verdad)
@@ -1340,13 +1364,13 @@ function initPairSelector() {
 // v2.7: cambio de par centralizado (selector + panel sincronizados)
 function setCurrentPair(pair) {
   currentPair = pair;
-  // v2.7.9: sin localStorage (memoria solamente)
+  // v2.8.0: sin localStorage (memoria solamente)
   const sel = document.getElementById('pair-selector');
   if (sel) sel.value = currentPair;
   document.getElementById('brand-subtitle').textContent = pairDisplay();
   renderPortfolioStrip();
   if (typeof refreshAll === 'function') refreshAll();
-  // v2.7.9: si ese par no tiene datos frescos, analizar (sin spamear)
+  // v2.8.0: si ese par no tiene datos frescos, analizar (sin spamear)
   if (typeof smartInitAnalysis === 'function') smartInitAnalysis();
 }
 
@@ -1424,7 +1448,7 @@ async function analyzeAllPairs(silent) {
     const data = await r.json();
     if (data.ok) {
       renderSignals(data);
-      renderCerebro(data);   // v2.7.9: actualiza también el cerebro por par
+      renderCerebro(data);   // v2.8.0: actualiza también el cerebro por par
       // actualizar también las tarjetas con la señal (action) de cada par
       for (const s of data.setups) {
         if (!pairStats[s.pair]) pairStats[s.pair] = {};
@@ -1530,7 +1554,7 @@ function renderSignals(data) {
   }).join('');
 }
 
-// v2.7.9: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
+// v2.8.0: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
 function renderCerebro(data) {
   const cont = document.getElementById('cerebro-cards');
   if (!cont) return;
@@ -1573,7 +1597,7 @@ function renderCerebro(data) {
     const bear = s.bias_bear || 50;
     const biasCol = bull >= 60 ? 'var(--g)' : bull <= 40 ? 'var(--r)' : 'var(--gold)';
 
-    // v2.7.9: desglose de los factores del score (de dónde sale el puntaje)
+    // v2.8.0: desglose de los factores del score (de dónde sale el puntaje)
     const FACTOR_NAMES = {
       htf_alignment:'HTF alignment', sweep_quality:'Sweep quality', displacement:'Displacement',
       inducement:'Inducement', bos_quality:'BOS quality', fvg_ob_quality:'FVG/OB quality',
@@ -1678,7 +1702,7 @@ const THEMES = {
 
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.7.9: protegido
+  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.8.0: protegido
   document.querySelectorAll('.theme-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === theme);
   });
@@ -1693,7 +1717,7 @@ document.querySelectorAll('.theme-btn').forEach(b => {
   b.onclick = () => setTheme(b.dataset.theme);
 });
 
-// Cargar tema guardado (v2.7.9: protegido por si localStorage falla)
+// Cargar tema guardado (v2.8.0: protegido por si localStorage falla)
 let savedTheme = 'dark';
 try { savedTheme = localStorage.getItem('tpdcm-theme') || 'dark'; } catch(e) {}
 setTheme(savedTheme);
@@ -1708,6 +1732,10 @@ document.querySelectorAll('.tab').forEach(t => {
     // Cargar historial al entrar al tab Claude
     if (t.dataset.tab === 'claude-chat') {
       loadClaudeHistory();
+    }
+    // v2.8.0: cargar noticias al entrar al tab Noticias
+    if (t.dataset.tab === 'news') {
+      loadNews();
     }
   };
 });
@@ -1750,7 +1778,7 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  // v2.7.9: aviso claro si NO hay análisis fresco (en vez de "--" mudos)
+  // v2.8.0: aviso claro si NO hay análisis fresco (en vez de "--" mudos)
   const sinAnalisis = !ict || Object.keys(ict).length === 0 || !d.ts;
   const avisoEl = document.getElementById('dash-empty-notice');
   if (avisoEl) {
@@ -1767,7 +1795,7 @@ function renderDashboard(d) {
     }
   }
 
-  // v2.7.9: pill-server se setea desde health (ver refreshAll), no desde d.server
+  // v2.8.0: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -2028,7 +2056,7 @@ function renderTrades(d, liveTrades) {
       const units = parseInt(t.currentUnits || 0);
       const a = units > 0 ? 'BUY' : 'SELL';
       const pnl = parseFloat(t.unrealizedPL || 0);
-      // v2.7.9: instrumento OANDA (ej EUR_USD) para link al gráfico
+      // v2.8.0: instrumento OANDA (ej EUR_USD) para link al gráfico
       const inst = t.instrument || '';
       const oandaUrl = 'https://trade.oanda.com/';
       const aCol = a === 'BUY' ? 'var(--g)' : 'var(--r)';
@@ -2140,12 +2168,12 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
-    // v2.7.9: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    // v2.8.0: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
     setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
   if (d) {
-    // v2.7.9: NORMALIZAR estructura. El endpoint /dashboard devuelve
+    // v2.8.0: NORMALIZAR estructura. El endpoint /dashboard devuelve
     // { state, last_analysis:{ict,price,ts}, last_decision }. Pero las
     // funciones render esperan d.ict, d.decision, d.ts en el nivel raíz.
     // Esto causaba que muchas secciones salieran vacías ("--").
@@ -2747,7 +2775,7 @@ async function loadClaudeHistory() {
     }
 
     // Última narrativa destacada
-    // v2.7.9: campos del legacy_entry con fallback (action/score/ceo_reason/ceo_macro)
+    // v2.8.0: campos del legacy_entry con fallback (action/score/ceo_reason/ceo_macro)
     const last = history[0];
     document.getElementById('claude-last-ts').textContent =
       last.timestamp_et ? new Date(last.timestamp_et).toLocaleString() :
@@ -2858,7 +2886,7 @@ function renderTrendsAndPatterns(history) {
   document.getElementById('patterns-summary').innerHTML = patternsHtml;
 }
 
-// v2.7.9: arranque con análisis automático inteligente
+// v2.8.0: arranque con análisis automático inteligente
 // Si los datos del análisis están viejos o no existen, dispara un análisis
 // fresco UNA vez al cargar, para que el dashboard no se vea vacío.
 let lastAutoAnalysis = 0;
@@ -2876,6 +2904,100 @@ async function smartInitAnalysis() {
       await refreshAll();
     }
   } catch (e) { /* si falla, el refreshAll normal igual corre */ }
+}
+
+// ============== NOTICIAS / CALENDARIO ECONÓMICO (v2.8.0) ==============
+let newsData = [];
+let newsFilter = 'all';
+
+async function loadNews() {
+  const cont = document.getElementById('news-list');
+  if (cont) cont.innerHTML = '<div class="empty">Cargando calendario económico...</div>';
+  try {
+    const data = await fetchJSON('/news');
+    if (!data || !data.ok) {
+      if (cont) cont.innerHTML = '<div class="empty">No se pudo cargar el calendario ahora. Probá "↻ Refrescar" en un momento.</div>';
+      return;
+    }
+    newsData = data.events || [];
+    const ts = document.getElementById('news-ts');
+    if (ts) ts.textContent = 'Actualizado ' + new Date().toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit'});
+    renderNews();
+  } catch (e) {
+    if (cont) cont.innerHTML = '<div class="empty">Error de conexión al cargar noticias.</div>';
+  }
+}
+
+function setNewsFilter(imp) {
+  newsFilter = imp;
+  document.querySelectorAll('.news-filter').forEach(b => {
+    const active = b.dataset.impact === imp;
+    b.classList.toggle('active', active);
+    if (active && imp === 'all') { b.style.background = 'var(--g)'; b.style.color = '#06160d'; }
+    else if (active) { b.style.background = b.style.borderColor; b.style.color = '#06160d'; }
+    else {
+      b.style.background = 'var(--bg2)';
+      b.style.color = b.dataset.impact === 'high' ? 'var(--r)' : b.dataset.impact === 'medium' ? 'var(--gold)' : b.dataset.impact === 'all' ? 'var(--g)' : 'var(--t2)';
+    }
+  });
+  renderNews();
+}
+
+function renderNews() {
+  const cont = document.getElementById('news-list');
+  if (!cont) return;
+  let evs = newsData;
+  if (newsFilter !== 'all') {
+    evs = evs.filter(e => (e.impact || '').toLowerCase() === newsFilter);
+  }
+  if (!evs.length) {
+    cont.innerHTML = '<div class="empty">Sin eventos para este filtro esta semana.</div>';
+    return;
+  }
+  // agrupar por día
+  const byDay = {};
+  evs.forEach(e => {
+    const d = e.date_only || 'Sin fecha';
+    if (!byDay[d]) byDay[d] = [];
+    byDay[d].push(e);
+  });
+  const impactDot = (imp) => {
+    const i = (imp || '').toLowerCase();
+    if (i === 'high') return '<span style="color:var(--r)">🔴</span>';
+    if (i === 'medium') return '<span style="color:var(--gold)">🟠</span>';
+    if (i === 'low') return '<span style="color:var(--t2)">⚪</span>';
+    return '<span style="color:var(--blue)">🏖️</span>'; // holiday
+  };
+  const fmtHora = (iso) => {
+    if (!iso) return '--';
+    try { return new Date(iso).toLocaleTimeString('es', {hour:'2-digit', minute:'2-digit'}); }
+    catch(e) { return '--'; }
+  };
+  const fmtDia = (d) => {
+    try {
+      const dt = new Date(d + 'T12:00:00');
+      return dt.toLocaleDateString('es', {weekday:'long', day:'numeric', month:'short'});
+    } catch(e) { return d; }
+  };
+
+  let html = '';
+  Object.keys(byDay).sort().forEach(day => {
+    const esHoy = newsData.length && byDay[day][0] && byDay[day][0].is_today;
+    html += '<div style="margin:14px 0 8px; font-size:11px; font-weight:700; color:' + (esHoy?'var(--g)':'var(--t)') + '; letter-spacing:0.03em; text-transform:capitalize; border-bottom:1px solid var(--b); padding-bottom:5px">' +
+      (esHoy ? '📍 HOY · ' : '') + fmtDia(day) + '</div>';
+    byDay[day].forEach(e => {
+      const blocks = e.blocks_trading;
+      html += '<div style="display:flex; align-items:center; gap:10px; padding:7px 10px; margin-bottom:4px; background:var(--bg2); border-radius:5px; ' + (blocks?'border-left:3px solid var(--r)':'border-left:3px solid transparent') + '">' +
+        '<span style="font-family:\'IBM Plex Mono\'; font-size:10px; color:var(--t2); width:46px">' + fmtHora(e.date) + '</span>' +
+        '<span style="font-size:11px">' + impactDot(e.impact) + '</span>' +
+        '<span style="font-family:\'IBM Plex Mono\'; font-size:10px; font-weight:700; color:var(--t); width:38px">' + e.currency + '</span>' +
+        '<span style="font-size:11px; color:var(--t); flex:1">' + e.title +
+          (blocks ? ' <span style="font-size:9px; color:var(--r)">⛔ el sistema no opera cerca</span>' : '') + '</span>' +
+        (e.forecast ? '<span style="font-size:9px; color:var(--t3)">prev: ' + (e.previous||'--') + ' → est: ' + e.forecast + '</span>' : '') +
+        '</div>';
+    });
+  });
+  cont.innerHTML = html;
 }
 
 refreshAll();
