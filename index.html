@@ -699,7 +699,7 @@ body {
 
   <!-- HEADER -->
   <div class="top">
-    <div class="brand">TPDCM-IA<small id="brand-subtitle">PORTFOLIO MULTI-PAR · v2.7</small></div>
+    <div class="brand">TPDCM-IA<small id="brand-subtitle">PORTFOLIO MULTI-PAR · v2.9</small></div>
 
     <!-- PAIR SELECTOR (v2.6) -->
     <select id="pair-selector" title="Seleccionar par" style="background:var(--bg2);color:var(--g);border:1px solid var(--g);border-radius:4px;padding:5px 10px;font-family:inherit;font-size:11px;cursor:pointer;letter-spacing:0.05em;margin-right:8px">
@@ -709,6 +709,8 @@ body {
       <option value="AUD_USD">AUD/USD · London</option>
       <option value="USD_CAD">USD/CAD · London</option>
       <option value="GBP_JPY">GBP/JPY · Todas</option>
+      <option value="USD_JPY">USD/JPY · Todas</option>
+      <option value="EUR_JPY">EUR/JPY · Todas</option>
     </select>
 
     <!-- THEME SWITCHER -->
@@ -749,15 +751,15 @@ body {
   <!-- ==================== TAB: DASHBOARD ==================== -->
   <div class="tab-content" id="tab-dashboard">
 
-    <!-- v2.7: PANEL DE PORTFOLIO (5 pares de un vistazo) -->
+    <!-- v2.7: PANEL DE PORTFOLIO (7 pares de un vistazo) -->
     <div class="portfolio-strip" id="portfolio-strip">
       <!-- tarjetas inyectadas por JS -->
     </div>
 
-    <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 5 pares) -->
+    <!-- v2.7: PANEL DE SEÑALES ACTIVAS (posibles entradas de los 7 pares) -->
     <div class="card" id="signals-panel" style="margin-bottom:14px">
       <div class="sec-header">
-        <div class="sec-title">🎯 Posibles Entradas · 5 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.8.0</span></div>
+        <div class="sec-title">🎯 Posibles Entradas · 7 Pares <span style="font-size:9px;color:var(--g);font-weight:400">v2.8.1</span></div>
         <div style="display:flex;align-items:center;gap:10px">
           <span id="signals-auto" style="font-size:9px;color:var(--t2)">auto: off</span>
           <span id="signals-ts" style="font-size:10px;color:var(--t2)">--</span>
@@ -778,7 +780,7 @@ body {
       </div>
     </div>
 
-    <!-- v2.8.0: aviso claro cuando no hay análisis fresco del par -->
+    <!-- v2.8.1: aviso claro cuando no hay análisis fresco del par -->
     <div id="dash-empty-notice" style="display:none; font-size:11.5px; color:var(--t); background:var(--bg2); border-left:3px solid var(--gold); border-radius:5px; padding:11px 14px; margin-bottom:14px; line-height:1.6"></div>
 
     <div class="grid grid-2" style="margin-bottom:12px">
@@ -918,7 +920,7 @@ body {
   <!-- ==================== TAB: ICT ANALYSIS ==================== -->
   <div class="tab-content hidden" id="tab-ict">
 
-    <!-- v2.8.0: CEREBRO POR PAR (Python motor + Claude cognitive) -->
+    <!-- v2.8.1: CEREBRO POR PAR (Python motor + Claude cognitive) -->
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-bottom:6px">
         <div class="card-label" style="margin:0">🧠 CEREBRO DEL SISTEMA · ANÁLISIS POR PAR</div>
@@ -1307,7 +1309,7 @@ const API = (window.location.hostname.includes('railway.app'))
   : 'https://web-production-e3f5c.up.railway.app';
 
 // ============== PAIR SELECTOR (v2.7) ==============
-// v2.8.0: en memoria (no localStorage, que puede fallar según el contexto)
+// v2.8.1: en memoria (no localStorage, que puede fallar según el contexto)
 let currentPair = 'ALL';
 
 // v2.7: Registro central de pares (fuente única de verdad)
@@ -1318,9 +1320,11 @@ const PAIRS_INFO = {
   'AUD_USD': { display: 'AUD/USD', color: 'var(--blue)',   session: 'London only', tier: 'B' },
   'USD_CAD': { display: 'USD/CAD', color: '#ff7a5c',       session: 'London only', tier: 'B' },
   'GBP_JPY': { display: 'GBP/JPY', color: 'var(--purple)', session: 'Todas', tier: 'B' },
+  'USD_JPY': { display: 'USD/JPY', color: '#5ce0c0',       session: 'Todas', tier: 'B' },
+  'EUR_JPY': { display: 'EUR/JPY', color: '#e06ba8',       session: 'Todas', tier: 'B' },
 };
 // Orden de pares activos para iterar
-const ACTIVE_PAIRS = ['EUR_USD','GBP_USD','AUD_USD','USD_CAD','GBP_JPY'];
+const ACTIVE_PAIRS = ['EUR_USD','GBP_USD','AUD_USD','USD_CAD','GBP_JPY','USD_JPY','EUR_JPY'];
 
 // Helper: color de un par (acepta 'EUR_USD', 'EUR/USD', o label suelto)
 function pairColorFor(label) {
@@ -1328,6 +1332,8 @@ function pairColorFor(label) {
   const norm = String(label).replace('/', '_').toUpperCase();
   if (PAIRS_INFO[norm]) return PAIRS_INFO[norm].color;
   // fallback por substring (compat con datos viejos)
+  if (label.includes('EUR') && label.includes('JPY')) return '#e06ba8';
+  if (label.includes('USD') && label.includes('JPY')) return '#5ce0c0';
   if (label.includes('EUR') && label.includes('USD')) return 'var(--g)';
   if (label.includes('GBP') && label.includes('JPY')) return 'var(--purple)';
   if (label.includes('GBP')) return 'var(--gold)';
@@ -1344,10 +1350,10 @@ function pairParam(extraParam = '') {
 }
 
 function pairDisplay() {
-  if (currentPair === 'ALL') return 'PORTFOLIO MULTI-PAR · v2.7';
+  if (currentPair === 'ALL') return 'PORTFOLIO MULTI-PAR · v2.9';
   const info = PAIRS_INFO[currentPair];
-  if (info) return info.display + ' INSTITUCIONAL · v2.7';
-  return currentPair + ' · v2.7';
+  if (info) return info.display + ' INSTITUCIONAL · v2.9';
+  return currentPair + " · v2.9";
 }
 
 function initPairSelector() {
@@ -1364,13 +1370,13 @@ function initPairSelector() {
 // v2.7: cambio de par centralizado (selector + panel sincronizados)
 function setCurrentPair(pair) {
   currentPair = pair;
-  // v2.8.0: sin localStorage (memoria solamente)
+  // v2.8.1: sin localStorage (memoria solamente)
   const sel = document.getElementById('pair-selector');
   if (sel) sel.value = currentPair;
   document.getElementById('brand-subtitle').textContent = pairDisplay();
   renderPortfolioStrip();
   if (typeof refreshAll === 'function') refreshAll();
-  // v2.8.0: si ese par no tiene datos frescos, analizar (sin spamear)
+  // v2.8.1: si ese par no tiene datos frescos, analizar (sin spamear)
   if (typeof smartInitAnalysis === 'function') smartInitAnalysis();
 }
 
@@ -1385,7 +1391,7 @@ function renderPortfolioStrip() {
   // Tarjeta TODOS
   html += `<div class="pf-card all-card ${currentPair==='ALL'?'active':''}" onclick="setCurrentPair('ALL')">
     <div class="pf-card-name">🌐 TODOS</div>
-    <div class="pf-card-session">Portfolio · 5 pares</div>
+    <div class="pf-card-session">Portfolio · 7 pares</div>
     <div class="pf-card-stats">
       <div class="pf-card-stat"><span class="val">5</span><span class="lbl">activos</span></div>
       <div class="pf-card-stat"><span class="val">B+</span><span class="lbl">calidad</span></div>
@@ -1443,12 +1449,12 @@ async function analyzeAllPairs(silent) {
     if (btn2) { btn2.classList.add('btn-analyzing'); btn2.textContent = '⏳ ANALIZANDO...'; }
   }
   try {
-    // run=true fuerza análisis fresco de los 5 pares
+    // run=true fuerza análisis fresco de los 7 pares
     const r = await fetch(API + '/all-setups?run=true');
     const data = await r.json();
     if (data.ok) {
       renderSignals(data);
-      renderCerebro(data);   // v2.8.0: actualiza también el cerebro por par
+      renderCerebro(data);   // v2.8.1: actualiza también el cerebro por par
       // actualizar también las tarjetas con la señal (action) de cada par
       for (const s of data.setups) {
         if (!pairStats[s.pair]) pairStats[s.pair] = {};
@@ -1554,7 +1560,7 @@ function renderSignals(data) {
   }).join('');
 }
 
-// v2.8.0: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
+// v2.8.1: CEREBRO POR PAR — Python (motor técnico) + Claude (cognitive) juntos
 function renderCerebro(data) {
   const cont = document.getElementById('cerebro-cards');
   if (!cont) return;
@@ -1597,7 +1603,7 @@ function renderCerebro(data) {
     const bear = s.bias_bear || 50;
     const biasCol = bull >= 60 ? 'var(--g)' : bull <= 40 ? 'var(--r)' : 'var(--gold)';
 
-    // v2.8.0: desglose de los factores del score (de dónde sale el puntaje)
+    // v2.8.1: desglose de los factores del score (de dónde sale el puntaje)
     const FACTOR_NAMES = {
       htf_alignment:'HTF alignment', sweep_quality:'Sweep quality', displacement:'Displacement',
       inducement:'Inducement', bos_quality:'BOS quality', fvg_ob_quality:'FVG/OB quality',
@@ -1702,7 +1708,7 @@ const THEMES = {
 
 function setTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme);
-  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.8.0: protegido
+  try { localStorage.setItem('tpdcm-theme', theme); } catch(e) {}  // v2.8.1: protegido
   document.querySelectorAll('.theme-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.theme === theme);
   });
@@ -1717,7 +1723,7 @@ document.querySelectorAll('.theme-btn').forEach(b => {
   b.onclick = () => setTheme(b.dataset.theme);
 });
 
-// Cargar tema guardado (v2.8.0: protegido por si localStorage falla)
+// Cargar tema guardado (v2.8.1: protegido por si localStorage falla)
 let savedTheme = 'dark';
 try { savedTheme = localStorage.getItem('tpdcm-theme') || 'dark'; } catch(e) {}
 setTheme(savedTheme);
@@ -1733,7 +1739,7 @@ document.querySelectorAll('.tab').forEach(t => {
     if (t.dataset.tab === 'claude-chat') {
       loadClaudeHistory();
     }
-    // v2.8.0: cargar noticias al entrar al tab Noticias
+    // v2.8.1: cargar noticias al entrar al tab Noticias
     if (t.dataset.tab === 'news') {
       loadNews();
     }
@@ -1778,7 +1784,7 @@ function renderDashboard(d) {
   const regime = ict.regime || {};
   const anom = ict.anomalies_detected || {};
 
-  // v2.8.0: aviso claro si NO hay análisis fresco (en vez de "--" mudos)
+  // v2.8.1: aviso claro si NO hay análisis fresco (en vez de "--" mudos)
   const sinAnalisis = !ict || Object.keys(ict).length === 0 || !d.ts;
   const avisoEl = document.getElementById('dash-empty-notice');
   if (avisoEl) {
@@ -1795,7 +1801,7 @@ function renderDashboard(d) {
     }
   }
 
-  // v2.8.0: pill-server se setea desde health (ver refreshAll), no desde d.server
+  // v2.8.1: pill-server se setea desde health (ver refreshAll), no desde d.server
 
   $('dec-action').textContent = dec.action || '--';
   $('dec-action').style.color = dec.action === 'BUY' ? 'var(--g)' : dec.action === 'SELL' ? 'var(--r)' : 'var(--gold)';
@@ -2056,7 +2062,7 @@ function renderTrades(d, liveTrades) {
       const units = parseInt(t.currentUnits || 0);
       const a = units > 0 ? 'BUY' : 'SELL';
       const pnl = parseFloat(t.unrealizedPL || 0);
-      // v2.8.0: instrumento OANDA (ej EUR_USD) para link al gráfico
+      // v2.8.1: instrumento OANDA (ej EUR_USD) para link al gráfico
       const inst = t.instrument || '';
       const oandaUrl = 'https://trade.oanda.com/';
       const aCol = a === 'BUY' ? 'var(--g)' : 'var(--r)';
@@ -2168,12 +2174,12 @@ async function refreshAll() {
     setPill('pill-auto', health.auto_execute, health.auto_execute ? 'AUTO-EXEC ON' : 'MANUAL');
     setPill('pill-cog', !health.cognitive_disabled, health.cognitive_disabled ? 'COG DEGRADED' : 'COGNITIVE');
     setPill('pill-notify', (health.notifications || {}).configured, 'NOTIFY');
-    // v2.8.0: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
+    // v2.8.1: el pill server lee health.server (garantizado), no d.server (puede faltar en /dashboard)
     setPill('pill-server', health.server === 'online', health.server === 'online' ? 'SERVER' : 'OFFLINE');
   }
 
   if (d) {
-    // v2.8.0: NORMALIZAR estructura. El endpoint /dashboard devuelve
+    // v2.8.1: NORMALIZAR estructura. El endpoint /dashboard devuelve
     // { state, last_analysis:{ict,price,ts}, last_decision }. Pero las
     // funciones render esperan d.ict, d.decision, d.ts en el nivel raíz.
     // Esto causaba que muchas secciones salieran vacías ("--").
@@ -2775,7 +2781,7 @@ async function loadClaudeHistory() {
     }
 
     // Última narrativa destacada
-    // v2.8.0: campos del legacy_entry con fallback (action/score/ceo_reason/ceo_macro)
+    // v2.8.1: campos del legacy_entry con fallback (action/score/ceo_reason/ceo_macro)
     const last = history[0];
     document.getElementById('claude-last-ts').textContent =
       last.timestamp_et ? new Date(last.timestamp_et).toLocaleString() :
@@ -2886,7 +2892,7 @@ function renderTrendsAndPatterns(history) {
   document.getElementById('patterns-summary').innerHTML = patternsHtml;
 }
 
-// v2.8.0: arranque con análisis automático inteligente
+// v2.8.1: arranque con análisis automático inteligente
 // Si los datos del análisis están viejos o no existen, dispara un análisis
 // fresco UNA vez al cargar, para que el dashboard no se vea vacío.
 let lastAutoAnalysis = 0;
@@ -2906,7 +2912,7 @@ async function smartInitAnalysis() {
   } catch (e) { /* si falla, el refreshAll normal igual corre */ }
 }
 
-// ============== NOTICIAS / CALENDARIO ECONÓMICO (v2.8.0) ==============
+// ============== NOTICIAS / CALENDARIO ECONÓMICO (v2.8.1) ==============
 let newsData = [];
 let newsFilter = 'all';
 
@@ -2915,16 +2921,19 @@ async function loadNews() {
   if (cont) cont.innerHTML = '<div class="empty">Cargando calendario económico...</div>';
   try {
     const data = await fetchJSON('/news');
+    console.log('[NEWS] respuesta:', data ? ('ok=' + data.ok + ' count=' + data.count) : 'null');
     if (!data || !data.ok) {
       if (cont) cont.innerHTML = '<div class="empty">No se pudo cargar el calendario ahora. Probá "↻ Refrescar" en un momento.</div>';
       return;
     }
     newsData = data.events || [];
+    console.log('[NEWS] eventos cargados:', newsData.length);
     const ts = document.getElementById('news-ts');
-    if (ts) ts.textContent = 'Actualizado ' + new Date().toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit'});
+    if (ts) ts.textContent = 'Actualizado ' + new Date().toLocaleTimeString('es', {hour:'2-digit',minute:'2-digit'}) + ' · ' + newsData.length + ' eventos';
     renderNews();
   } catch (e) {
-    if (cont) cont.innerHTML = '<div class="empty">Error de conexión al cargar noticias.</div>';
+    console.error('[NEWS] error:', e);
+    if (cont) cont.innerHTML = '<div class="empty">Error al cargar noticias: ' + e.message + '</div>';
   }
 }
 
