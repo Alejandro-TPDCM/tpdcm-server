@@ -126,7 +126,7 @@ PAIR_CONFIG = {
         'block_regimes_always':  ['ranging'],          # ranging 0% WR PnL -$3,950
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed19: FASE 1 - 6 pares nuevos de 4-decimales
+    # v2.6.0-beta-fixed20: FASE 1 - 6 pares nuevos de 4-decimales
     # Todos con enabled=False hasta validar con backtest individual.
     # Misma logica de pips que EUR/USD (pip_value 0.0001).
     # ═══════════════════════════════════════════════════════════════════
@@ -145,7 +145,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed19: AUD solo opera London (NY pierde -$5,832)
+        # v2.6.0-beta-fixed20: AUD solo opera London (NY pierde -$5,832)
         # Backtest London-only: WR 56%, PF 2.72, +$9,066
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -164,7 +164,7 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed19: CAD solo opera London (NY pierde -$1,365)
+        # v2.6.0-beta-fixed20: CAD solo opera London (NY pierde -$1,365)
         # Backtest London-only: WR 80%, PF 6.59, +$7,363
         'allowed_killzones':     ['LONDON_OPEN'],
     },
@@ -233,14 +233,16 @@ PAIR_CONFIG = {
         'block_regimes_always':  [],
     },
     # ═══════════════════════════════════════════════════════════════════
-    # v2.6.0-beta-fixed19: FASE 2 - pares volatiles (JPY + oro)
+    # v2.6.0-beta-fixed20: FASE 2 - pares volatiles (JPY + oro)
     # AHORA POSIBLES gracias al refactor de pip_value.
     # JPY: pip_value 0.01 (2 decimales) | XAU: pip_value 0.1
     # Todos enabled=False hasta validar con backtest individual.
     # ═══════════════════════════════════════════════════════════════════
     'USD_JPY': {
         'display':       'USD/JPY',
-        'enabled':       False,
+        # v2.6.0-beta-fixed20: ACTIVADO tras backtest 36m. WR 56%, PF 1.64,
+        # +$22,141 (62 trades, DD 4.67%). El mejor del set de standby.
+        'enabled':       True,
         'min_score':     60,
         'min_score_wed': 66,
         'risk_pct':      float(os.environ.get('RISK_PCT_USDJPY', '1.0')),
@@ -269,14 +271,16 @@ PAIR_CONFIG = {
         'tier':          'B',
         'extra_caution_days':    [],
         'block_regimes_always':  [],
-        # v2.6.0-beta-fixed19: GBP/JPY opera TODAS las sesiones (decision usuaria)
+        # v2.6.0-beta-fixed20: GBP/JPY opera TODAS las sesiones (decision usuaria)
         # Backtest 36m todas: WR 47%, PF 1.21, +$8,290 (62 trades, DD 6.05%)
         # vs London-only 36m: WR 50%, PF 1.35, +$4,651 (22 trades, DD 3.60%)
         # Mas PnL absoluto a cambio de mayor drawdown. Sin filtro de killzone.
     },
     'EUR_JPY': {
         'display':       'EUR/JPY',
-        'enabled':       False,
+        # v2.6.0-beta-fixed20: ACTIVADO tras backtest 36m. WR 51%, PF 1.36,
+        # +$14,222 (70 trades, DD 12.0%). Solido. Pares JPY se mueven bien.
+        'enabled':       True,
         'min_score':     61,
         'min_score_wed': 67,
         'risk_pct':      float(os.environ.get('RISK_PCT_EURJPY', '0.9')),
@@ -340,7 +344,7 @@ CAUTION_BLOCKED_ANOMALIES = ['medium', 'high']
 
 MAX_TRADES_PER_DAY        = 2
 SECOND_TRADE_RISK_MULT    = 0.7
-MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed19: 3->2 (ajuste fino, mas trades)
+MIN_HOURS_BETWEEN_TRADES  = 2   # v2.6.0-beta-fixed20: 3->2 (ajuste fino, mas trades)
 
 OANDA_BASE = ('https://api-fxpractice.oanda.com' if OANDA_ENV == 'practice'
               else 'https://api-fxtrade.oanda.com')
@@ -652,7 +656,7 @@ def build_critical_alert_email(alert_type: str, message: str, details: dict):
 # SECCION 4: APP FASTAPI + ESTADO GLOBAL
 # ═══════════════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed19')
+app = FastAPI(title='TPDCM-IA', version='2.6.0-beta-fixed20')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=True,
                    allow_methods=['*'], allow_headers=['*'])
 
@@ -799,7 +803,7 @@ _FF_HEADERS = {
     'Accept-Language': 'en-US,en;q=0.9',
     'Referer': 'https://www.forexfactory.com/',
 }
-# v2.6.0-beta-fixed19: varias URLs del mismo feed (FF las rota / a veces bloquea una)
+# v2.6.0-beta-fixed20: varias URLs del mismo feed (FF las rota / a veces bloquea una)
 _FF_URLS = [
     'https://nfs.faireconomy.media/ff_calendar_thisweek.json',
     'https://cdn-nfs.faireconomy.media/ff_calendar_thisweek.json',
@@ -853,7 +857,7 @@ async def fetch_ff_calendar():
 
 async def fetch_ff_calendar_full():
     """Todos los eventos de la semana (para la pestaña de noticias).
-    v2.6.0-beta-fixed19: con caché y reintentos para que sea confiable."""
+    v2.6.0-beta-fixed20: con caché y reintentos para que sea confiable."""
     return await _ff_fetch_raw()
 
 def is_news_blocked(candle_dt, events):
@@ -2069,7 +2073,7 @@ async def run_analysis_pair(pair, auto_execute=False, all_news=None):
             state['history'] = state['history'][-2000:]
         storage_write_json('legacy/history.json', state['history'][-2000:])
 
-    # v2.6.0-beta-fixed19: filtro de killzones permitidas por par (en vivo)
+    # v2.6.0-beta-fixed20: filtro de killzones permitidas por par (en vivo)
     # AUD/CAD solo operan en LONDON_OPEN (NY pierde dinero)
     pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
     current_kz = ict.get('killzone', '')
@@ -2582,7 +2586,7 @@ async def run_backtesting_pair(pair, ignore_killzone=False):
                     cnt['cooldown'] += 1
                     continue
 
-            if i - last_idx < 4:   # v2.6.0-beta-fixed19: 5->4 velas (ajuste fino)
+            if i - last_idx < 4:   # v2.6.0-beta-fixed20: 5->4 velas (ajuste fino)
                 cnt['cooldown'] += 1
                 continue
 
@@ -2643,7 +2647,7 @@ async def run_backtesting_pair(pair, ignore_killzone=False):
                     cnt['pair_blocked_regime'] += 1
                     continue
 
-            # v2.6.0-beta-fixed19: solo operar en killzones permitidas (si se define)
+            # v2.6.0-beta-fixed20: solo operar en killzones permitidas (si se define)
             # AUD/CAD solo en LONDON_OPEN (NY pierde dinero historicamente)
             # v2.7: ignore_killzone=True salta este filtro (modo investigacion)
             pair_allowed_kz = pair_cfg.get('allowed_killzones', [])
@@ -3288,7 +3292,7 @@ h1{color:#00e87a}a{color:#4a9eff}</style></head>
 async def api_status():
     # v2.6.0-beta-fixed4: el JSON de estado se mueve aqui (antes estaba en /)
     return {
-        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed19',
+        'ok': True, 'service': 'TPDCM-IA', 'version': '2.6.0-beta-fixed20',
         'now_et': now_et().isoformat(),
         'session_active': is_session(),
         'auto_execute': AUTO_EXECUTE,
@@ -3504,7 +3508,7 @@ async def all_setups_endpoint(run: bool = False, cognitive: bool = True):
                 'source': last_dc.get('source', ''),
                 'ts': last_an.get('ts', ''),
                 'session': 'London only' if cfg.get('allowed_killzones') else 'Todas',
-                # v2.6.0-beta-fixed19: desglose detallado de los factores del score
+                # v2.6.0-beta-fixed20: desglose detallado de los factores del score
                 # cada uno: {pts, max, tag} para mostrar de donde sale el score
                 'factors': score.get('factors', {}),
             })
@@ -3686,7 +3690,7 @@ async def claude_conversation_history_endpoint(limit: int = 30):
 
 @app.get('/news')
 async def news_endpoint():
-    """v2.6.0-beta-fixed19: calendario economico de la semana (Forex Factory).
+    """v2.6.0-beta-fixed20: calendario economico de la semana (Forex Factory).
     Todas las monedas y todos los impactos. El frontend filtra por impacto.
     Marca cuales caen 'hoy' y cuales el sistema bloquearia (USD/EUR high)."""
     try:
