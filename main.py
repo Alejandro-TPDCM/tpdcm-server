@@ -1673,7 +1673,8 @@ def cognitive_is_disabled():
     if _cognitive_health['disabled_until'] is None: return False
     return time.time() < _cognitive_health['disabled_until']
 
-COGNITIVE_PROMPT = """Eres una capa de validacion institucional para un sistema de trading EUR/USD.
+COGNITIVE_PROMPT = """Eres una capa de validacion institucional para un sistema de trading multi-par (forex).
+El instrumento especifico de este setup viene indicado en el campo setup.instrument del contexto.
 Python ya tomo la decision tecnica (BUY o SELL) basada en su motor ICT/SMC.
 TU TRABAJO NO ES decidir direccion. TU TRABAJO ES validar el contexto institucional.
 
@@ -1710,7 +1711,7 @@ async def call_cognitive_layer(ict: dict, recent_history: list) -> Optional[Cogn
     if not technical_action or not sweep.get('detected') or not score.get('executable'):
         return None
     context_bundle = {
-        'setup': {'instrument': 'EUR_USD', 'technical_action': technical_action,
+        'setup': {'instrument': ict.get('pair', 'EUR_USD'), 'technical_action': technical_action,
                   'technical_confidence': score.get('confidence', 0),
                   'technical_score': score.get('total', 0),
                   'killzone': ict.get('killzone'),
