@@ -1181,11 +1181,10 @@ def detect_inducement(candles, lookback=12):
     return False, 'none'
 
 def detect_sweep(candles, levels, atr):
+    # v2.6.0-beta-fixed22: revisa las últimas 3 velas (actual + 2 cerradas recientes)
+    # antes solo revisaba candles[-1] => perdía sweeps que se completaban intra-hora
+    # ahora si el sweep ocurrió en velas[-2] o [-3], todavía lo detecta como reciente
     if len(candles) < 6: return {'detected': False}
-    c = candles[-1]
-    ch = float(c['mid']['h']); cl = float(c['mid']['l'])
-    co = float(c['mid']['o']); cc = float(c['mid']['c'])
-    rng = max(ch - cl, 0.00001); buf = atr * 0.15
     bear = []; bull = []
     if levels.get('pdh', 0) > 0:         bear.append(('PDH',         levels['pdh']))
     if levels.get('weekly_high', 0) > 0: bear.append(('WEEKLY_HIGH', levels['weekly_high']))
@@ -1199,24 +1198,35 @@ def detect_sweep(candles, levels, atr):
         prev = candles[-8:-1]
         bear = [('SWING_H1', max(float(x['mid']['h']) for x in prev))]
         bull = [('SWING_H1', min(float(x['mid']['l']) for x in prev))]
-    for lt, lv in bear:
-        if lv <= 0: continue
-        if ch > lv - buf and cc < lv:
-            wick = ch - max(co, cc); wp = wick / rng; ext = ch - lv
-            if wp >= 0.40 and ext >= atr * 0.05:
-                q = 'high' if wp >= 0.65 and ext >= atr * 0.15 else 'medium' if wp >= 0.50 else 'low'
-                return {'detected': True, 'direction': 'bearish', 'level': round(lv, 5),
-                        'level_type': lt, 'wick_pct': round(wp, 3), 'quality': q,
-                        'sweep_high': round(ch, 5)}
-    for lt, lv in bull:
-        if lv <= 0: continue
-        if cl < lv + buf and cc > lv:
-            wick = min(co, cc) - cl; wp = wick / rng; ext = lv - cl
-            if wp >= 0.40 and ext >= atr * 0.05:
-                q = 'high' if wp >= 0.65 and ext >= atr * 0.15 else 'medium' if wp >= 0.50 else 'low'
-                return {'detected': True, 'direction': 'bullish', 'level': round(lv, 5),
-                        'level_type': lt, 'wick_pct': round(wp, 3), 'quality': q,
-                        'sweep_low': round(cl, 5)}
+
+    # Iterar las últimas 3 velas (más reciente primero) hasta encontrar el primer sweep
+    for offset in (-1, -2, -3):
+        if abs(offset) > len(candles):
+            continue
+        c = candles[offset]
+        ch = float(c['mid']['h']); cl = float(c['mid']['l'])
+        co = float(c['mid']['o']); cc = float(c['mid']['c'])
+        rng = max(ch - cl, 0.00001); buf = atr * 0.15
+        for lt, lv in bear:
+            if lv <= 0: continue
+            if ch > lv - buf and cc < lv:
+                wick = ch - max(co, cc); wp = wick / rng; ext = ch - lv
+                if wp >= 0.40 and ext >= atr * 0.05:
+                    q = 'high' if wp >= 0.65 and ext >= atr * 0.15 else 'medium' if wp >= 0.50 else 'low'
+                    return {'detected': True, 'direction': 'bearish', 'level': round(lv, 5),
+                            'level_type': lt, 'wick_pct': round(wp, 3), 'quality': q,
+                            'sweep_high': round(ch, 5),
+                            'candle_age': abs(offset) - 1}  # 0=vela actual, 1=hace 1 vela, etc.
+        for lt, lv in bull:
+            if lv <= 0: continue
+            if cl < lv + buf and cc > lv:
+                wick = min(co, cc) - cl; wp = wick / rng; ext = lv - cl
+                if wp >= 0.40 and ext >= atr * 0.05:
+                    q = 'high' if wp >= 0.65 and ext >= atr * 0.15 else 'medium' if wp >= 0.50 else 'low'
+                    return {'detected': True, 'direction': 'bullish', 'level': round(lv, 5),
+                            'level_type': lt, 'wick_pct': round(wp, 3), 'quality': q,
+                            'sweep_low': round(cl, 5),
+                            'candle_age': abs(offset) - 1}
     return {'detected': False}
 
 def detect_displacement(candles, action, atr):
@@ -3818,8 +3828,17 @@ async def startup_event():
 
     scheduler = AsyncIOScheduler(timezone=ZoneInfo('America/New_York'))
 
+    # v2.6.0-beta-fixed22: frecuencia del análisis configurable por variable Railway
+    # Antes corría 1 vez/hora (minute='1'). Eso perdía muchos sweeps intra-hora.
+    # Default ahora: cada 10 minutos durante la sesión (3-12 ET).
+    # Para volver al comportamiento viejo: ANALYSIS_INTERVAL_MIN=60
+    _interval = max(1, int(os.environ.get('ANALYSIS_INTERVAL_MIN', '10')))
+    if _interval >= 60:
+        _trigger = CronTrigger(minute='1', hour='3-12')
+    else:
+        _trigger = CronTrigger(minute=f'*/{_interval}', hour='3-12')
     scheduler.add_job(
-        run_analysis, CronTrigger(minute='1', hour='3-12'),
+        run_analysis, _trigger,
         kwargs={'auto_execute': AUTO_EXECUTE},
         id='analysis_hourly', max_instances=1, coalesce=True
     )
