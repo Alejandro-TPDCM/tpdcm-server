@@ -1008,8 +1008,10 @@ async def oanda_put(path, body):
 
 async def get_candles(granularity='H1', count=100, pair=None):
     instrument = pair if pair else PAIR
-    data = await oanda_get(f'/v3/instruments/{instrument}/candles?granularity={granularity}&count={count}&price=M')
-    return data.get('candles', [])
+    data = await oanda_get(f'/v3/instruments/{instrument}/candles?granularity={granularity}&count={count + 1}&price=M')
+    candles = data.get('candles', [])
+    closed = [c for c in candles if c.get('complete', False)]
+    return closed[-count:] if len(closed) > count else closed
 
 async def get_candles_to(granularity='H1', count=500, to_dt=None, pair=None):
     instrument = pair if pair else PAIR
