@@ -746,6 +746,8 @@ body {
     <button class="tab" data-tab="news">📰 NOTICIAS</button>
     <button class="tab" data-tab="memory">MEMORIA</button>
     <button class="tab" data-tab="backtest">BACKTESTING</button>
+    <button class="tab" data-tab="calc">🧮 CALC OANDA</button>
+    <button class="tab" data-tab="calcmt">📐 CALC METATRADER</button>
   </div>
 
   <!-- ==================== TAB: DASHBOARD ==================== -->
@@ -1290,6 +1292,271 @@ body {
             <th>SL</th><th>TP1/TP2</th><th>Outcome</th><th>P&amp;L</th><th>RR</th>
           </tr></thead>
           <tbody id="bt-rows"><tr><td colspan="10" class="empty">Aún no se ha ejecutado backtesting</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: CALCULADORA DE RIESGO ==================== -->
+  <div class="tab-content hidden" id="tab-calc">
+
+    <div class="card" style="margin-bottom:12px; border-color: color-mix(in srgb, var(--blue) 25%, transparent)">
+      <div class="card-label">🧮 CALCULADORA DE RIESGO · ESTILO MATCHTRADER</div>
+      <div style="font-size:11px; line-height:1.7; color:var(--t)">
+        Escribí el <strong style="color:var(--blue)">precio de entrada</strong>, el <strong style="color:var(--r)">Stop Loss</strong> y el <strong style="color:var(--g)">Take Profit</strong>, y movés el <strong>lotaje</strong> para ver en tiempo real cuánto arriesgás y cuánto ganás en tu cuenta OANDA (en USD). La dirección (compra/venta) se detecta sola según dónde pongas el SL.
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-bottom:12px">
+
+      <!-- ENTRADAS -->
+      <div class="card">
+        <div class="card-label">⚙️ DATOS DE LA OPERACIÓN</div>
+
+        <div style="margin-bottom:12px">
+          <label style="font-size:10px; color:var(--t2); letter-spacing:0.08em; text-transform:uppercase; display:block; margin-bottom:4px">Par</label>
+          <select id="calc-pair" onchange="calcUpdate()" style="width:100%; background:var(--bg2); color:var(--t); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:13px; cursor:pointer">
+            <option value="EUR_USD">EUR/USD</option>
+            <option value="GBP_USD">GBP/USD</option>
+            <option value="AUD_USD">AUD/USD</option>
+            <option value="USD_CAD">USD/CAD</option>
+            <option value="USD_JPY">USD/JPY</option>
+            <option value="GBP_JPY">GBP/JPY</option>
+            <option value="EUR_JPY">EUR/JPY</option>
+          </select>
+        </div>
+
+        <div class="grid grid-3" style="gap:10px; margin-bottom:12px">
+          <div>
+            <label style="font-size:10px; color:var(--blue); letter-spacing:0.05em; display:block; margin-bottom:4px">ENTRADA</label>
+            <input id="calc-entry" type="number" step="any" inputmode="decimal" placeholder="1.15000" oninput="calcUpdate()" style="width:100%; background:var(--bg2); color:var(--blue); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px">
+          </div>
+          <div>
+            <label style="font-size:10px; color:var(--r); letter-spacing:0.05em; display:block; margin-bottom:4px">STOP LOSS</label>
+            <input id="calc-sl" type="number" step="any" inputmode="decimal" placeholder="1.14800" oninput="calcUpdate()" style="width:100%; background:var(--bg2); color:var(--r); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px">
+          </div>
+          <div>
+            <label style="font-size:10px; color:var(--g); letter-spacing:0.05em; display:block; margin-bottom:4px">TAKE PROFIT</label>
+            <input id="calc-tp" type="number" step="any" inputmode="decimal" placeholder="1.15400" oninput="calcUpdate()" style="width:100%; background:var(--bg2); color:var(--g); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px">
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px">
+          <label style="font-size:10px; color:var(--t2); letter-spacing:0.08em; text-transform:uppercase; display:block; margin-bottom:4px">Lotaje (unidades) — movelo para ver el cambio</label>
+          <input id="calc-units" type="number" step="1000" inputmode="numeric" value="10000" oninput="calcUpdate()" style="width:100%; background:var(--bg2); color:var(--t); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px; margin-bottom:8px">
+          <input id="calc-units-range" type="range" min="1000" max="500000" step="1000" value="10000" oninput="calcRangeSync(this.value)" style="width:100%; accent-color:var(--g)">
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px">
+            <button class="btn" onclick="calcSetUnits(1000)" style="font-size:10px; padding:4px 8px">1k (micro)</button>
+            <button class="btn" onclick="calcSetUnits(10000)" style="font-size:10px; padding:4px 8px">10k (mini)</button>
+            <button class="btn" onclick="calcSetUnits(100000)" style="font-size:10px; padding:4px 8px">100k (1 lote)</button>
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size:10px; color:var(--t2); letter-spacing:0.08em; text-transform:uppercase; display:block; margin-bottom:4px">Balance de cuenta (USD)</label>
+          <input id="calc-balance" type="number" step="any" inputmode="decimal" value="10000" oninput="calcUpdate()" style="width:100%; background:var(--bg2); color:var(--t); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:13px">
+        </div>
+
+        <!-- input extra USD/JPY para convertir los cruces JPY (GBP/JPY, EUR/JPY) -->
+        <div id="calc-usdjpy-wrap" style="margin-top:12px; display:none">
+          <label style="font-size:10px; color:var(--gold); letter-spacing:0.05em; display:block; margin-bottom:4px">⚠️ Precio USD/JPY actual (para convertir a USD)</label>
+          <input id="calc-usdjpy" type="number" step="any" inputmode="decimal" value="160" oninput="calcUpdate()" style="width:100%; background:var(--bg2); color:var(--gold); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:13px">
+          <div style="font-size:9px; color:var(--t3); margin-top:4px; line-height:1.4">Los cruces GBP/JPY y EUR/JPY se cotizan en yenes. Para pasar el resultado a dólares se usa el precio actual del USD/JPY. Ponelo aproximado (lo ves en OANDA).</div>
+        </div>
+      </div>
+
+      <!-- RESULTADOS -->
+      <div class="card featured">
+        <div class="card-label">📊 RESULTADO SOBRE TU CUENTA</div>
+
+        <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:14px">
+          <span id="calc-direction" style="font-family:'IBM Plex Mono'; font-size:24px; font-weight:700; color:var(--t2)">--</span>
+          <span style="font-size:11px; color:var(--t2)" id="calc-pair-label">--</span>
+        </div>
+
+        <div style="background:color-mix(in srgb, var(--r) 10%, transparent); border:1px solid color-mix(in srgb, var(--r) 25%, transparent); border-radius:6px; padding:12px; margin-bottom:10px">
+          <div style="font-size:10px; color:var(--r); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:4px">⬇ Si toca el Stop Loss — ARRIESGÁS</div>
+          <div style="display:flex; align-items:baseline; gap:10px">
+            <span id="calc-risk-usd" style="font-family:'IBM Plex Mono'; font-size:28px; font-weight:700; color:var(--r)">$0.00</span>
+            <span id="calc-risk-pct" style="font-size:13px; color:var(--r)">0.00% de la cuenta</span>
+          </div>
+          <div id="calc-pips-sl" style="font-size:10px; color:var(--t2); margin-top:4px">-- pips de Stop Loss</div>
+        </div>
+
+        <div style="background:color-mix(in srgb, var(--g) 10%, transparent); border:1px solid color-mix(in srgb, var(--g) 25%, transparent); border-radius:6px; padding:12px; margin-bottom:10px">
+          <div style="font-size:10px; color:var(--g); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:4px">⬆ Si llega al Take Profit — GANÁS</div>
+          <div style="display:flex; align-items:baseline; gap:10px">
+            <span id="calc-gain-usd" style="font-family:'IBM Plex Mono'; font-size:28px; font-weight:700; color:var(--g)">$0.00</span>
+            <span id="calc-gain-pct" style="font-size:13px; color:var(--g)">0.00% de la cuenta</span>
+          </div>
+          <div id="calc-pips-tp" style="font-size:10px; color:var(--t2); margin-top:4px">-- pips de Take Profit</div>
+        </div>
+
+        <div class="kv" style="margin-top:6px"><span class="k">Riesgo / Beneficio (RR)</span><span class="v gold" id="calc-rr" style="font-size:16px">--</span></div>
+        <div class="kv"><span class="k">Valor por pip</span><span class="v" id="calc-pip-val">--</span></div>
+        <div class="kv"><span class="k">Lotaje usado</span><span class="v" id="calc-units-label">--</span></div>
+
+        <div id="calc-warn" style="display:none; margin-top:10px; padding:9px 12px; background:color-mix(in srgb, var(--gold) 12%, transparent); border-left:3px solid var(--gold); border-radius:4px; font-size:10.5px; color:var(--t); line-height:1.5"></div>
+      </div>
+    </div>
+
+    <!-- TABLA DE COMPARACIÓN RÁPIDA DE LOTAJES -->
+    <div class="card">
+      <div class="card-label">📋 COMPARACIÓN RÁPIDA POR LOTAJE (con los precios de arriba)</div>
+      <div style="font-size:10px; color:var(--t2); margin-bottom:10px">Tabla automática: te muestra el riesgo y la ganancia para distintos lotajes, usando el entry/SL/TP que cargaste arriba.</div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Lotaje (units)</th><th>Riesgo USD</th><th>Riesgo %</th><th>Ganancia USD</th><th>Ganancia %</th><th>RR</th>
+          </tr></thead>
+          <tbody id="calc-table-rows"><tr><td colspan="6" class="empty">Cargá entrada y SL arriba para ver la tabla</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TAB: CALCULADORA METATRADER ==================== -->
+  <div class="tab-content hidden" id="tab-calcmt">
+
+    <div class="card" style="margin-bottom:12px; border-color: color-mix(in srgb, var(--purple) 25%, transparent)">
+      <div class="card-label">📐 CALCULADORA METATRADER · LOTES + AUTO-RIESGO</div>
+      <div style="font-size:11px; line-height:1.7; color:var(--t)">
+        Esta calculadora trabaja en <strong style="color:var(--purple)">LOTES</strong> (como MetaTrader): 0.01 = micro, 0.10 = mini, 1.00 = lote estándar. Tiene <strong>dos modos</strong>: poné los lotes y ve tu riesgo, o decile cuánto querés arriesgar (%) y te dice <strong>cuántos lotes</strong> usar. Cuenta en USD.
+      </div>
+    </div>
+
+    <!-- SELECTOR DE MODO -->
+    <div class="card" style="margin-bottom:12px">
+      <div style="display:flex; gap:8px; flex-wrap:wrap">
+        <button id="mt-mode-lots-btn" class="btn btn-g" onclick="mtSetMode('lots')" style="flex:1; min-width:200px; padding:10px">📊 MODO 1: Tengo los lotes → ¿cuánto arriesgo?</button>
+        <button id="mt-mode-risk-btn" class="btn" onclick="mtSetMode('risk')" style="flex:1; min-width:200px; padding:10px">🎯 MODO 2: Quiero arriesgar X% → ¿cuántos lotes?</button>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="margin-bottom:12px">
+
+      <!-- ENTRADAS -->
+      <div class="card">
+        <div class="card-label">⚙️ DATOS DE LA OPERACIÓN</div>
+
+        <div style="margin-bottom:12px">
+          <label style="font-size:10px; color:var(--t2); letter-spacing:0.08em; text-transform:uppercase; display:block; margin-bottom:4px">Par</label>
+          <select id="mt-pair" onchange="mtUpdate()" style="width:100%; background:var(--bg2); color:var(--t); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:13px; cursor:pointer">
+            <option value="EUR_USD">EUR/USD</option>
+            <option value="GBP_USD">GBP/USD</option>
+            <option value="AUD_USD">AUD/USD</option>
+            <option value="USD_CAD">USD/CAD</option>
+            <option value="USD_JPY">USD/JPY</option>
+            <option value="GBP_JPY">GBP/JPY</option>
+            <option value="EUR_JPY">EUR/JPY</option>
+          </select>
+        </div>
+
+        <div class="grid grid-3" style="gap:10px; margin-bottom:12px">
+          <div>
+            <label style="font-size:10px; color:var(--blue); letter-spacing:0.05em; display:block; margin-bottom:4px">ENTRADA</label>
+            <input id="mt-entry" type="number" step="any" inputmode="decimal" placeholder="1.15000" oninput="mtUpdate()" style="width:100%; background:var(--bg2); color:var(--blue); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px">
+          </div>
+          <div>
+            <label style="font-size:10px; color:var(--r); letter-spacing:0.05em; display:block; margin-bottom:4px">STOP LOSS</label>
+            <input id="mt-sl" type="number" step="any" inputmode="decimal" placeholder="1.14800" oninput="mtUpdate()" style="width:100%; background:var(--bg2); color:var(--r); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px">
+          </div>
+          <div>
+            <label style="font-size:10px; color:var(--g); letter-spacing:0.05em; display:block; margin-bottom:4px">TAKE PROFIT</label>
+            <input id="mt-tp" type="number" step="any" inputmode="decimal" placeholder="1.15400" oninput="mtUpdate()" style="width:100%; background:var(--bg2); color:var(--g); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px">
+          </div>
+        </div>
+
+        <!-- MODO 1: input de LOTES -->
+        <div id="mt-lots-input" style="margin-bottom:12px">
+          <label style="font-size:10px; color:var(--purple); letter-spacing:0.08em; text-transform:uppercase; display:block; margin-bottom:4px">Lotes — movelo para ver el cambio</label>
+          <input id="mt-lots" type="number" step="0.01" min="0.01" inputmode="decimal" value="0.10" oninput="mtUpdate()" style="width:100%; background:var(--bg2); color:var(--purple); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px; margin-bottom:8px">
+          <input id="mt-lots-range" type="range" min="0.01" max="5" step="0.01" value="0.10" oninput="mtLotsRangeSync(this.value)" style="width:100%; accent-color:var(--purple)">
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px">
+            <button class="btn" onclick="mtSetLots(0.01)" style="font-size:10px; padding:4px 8px">0.01 micro</button>
+            <button class="btn" onclick="mtSetLots(0.10)" style="font-size:10px; padding:4px 8px">0.10 mini</button>
+            <button class="btn" onclick="mtSetLots(1.00)" style="font-size:10px; padding:4px 8px">1.00 estándar</button>
+          </div>
+        </div>
+
+        <!-- MODO 2: input de %RIESGO -->
+        <div id="mt-risk-input" style="margin-bottom:12px; display:none">
+          <label style="font-size:10px; color:var(--gold); letter-spacing:0.08em; text-transform:uppercase; display:block; margin-bottom:4px">¿Cuánto querés arriesgar? (% de la cuenta)</label>
+          <input id="mt-riskpct" type="number" step="0.1" min="0.1" inputmode="decimal" value="1.0" oninput="mtUpdate()" style="width:100%; background:var(--bg2); color:var(--gold); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:14px; margin-bottom:8px">
+          <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px">
+            <button class="btn" onclick="mtSetRisk(0.5)" style="font-size:10px; padding:4px 8px">0.5%</button>
+            <button class="btn" onclick="mtSetRisk(1.0)" style="font-size:10px; padding:4px 8px">1.0%</button>
+            <button class="btn" onclick="mtSetRisk(1.2)" style="font-size:10px; padding:4px 8px">1.2% (sistema)</button>
+            <button class="btn" onclick="mtSetRisk(2.0)" style="font-size:10px; padding:4px 8px">2.0%</button>
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size:10px; color:var(--t2); letter-spacing:0.08em; text-transform:uppercase; display:block; margin-bottom:4px">Balance de cuenta (USD)</label>
+          <input id="mt-balance" type="number" step="any" inputmode="decimal" value="10000" oninput="mtUpdate()" style="width:100%; background:var(--bg2); color:var(--t); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:13px">
+        </div>
+
+        <div id="mt-usdjpy-wrap" style="margin-top:12px; display:none">
+          <label style="font-size:10px; color:var(--gold); letter-spacing:0.05em; display:block; margin-bottom:4px">⚠️ Precio USD/JPY actual (para convertir a USD)</label>
+          <input id="mt-usdjpy" type="number" step="any" inputmode="decimal" value="160" oninput="mtUpdate()" style="width:100%; background:var(--bg2); color:var(--gold); border:1px solid var(--b2); border-radius:4px; padding:8px 10px; font-family:'IBM Plex Mono'; font-size:13px">
+          <div style="font-size:9px; color:var(--t3); margin-top:4px; line-height:1.4">GBP/JPY y EUR/JPY se cotizan en yenes. Para pasar a dólares se usa el precio actual del USD/JPY (lo ves en tu plataforma).</div>
+        </div>
+      </div>
+
+      <!-- RESULTADOS -->
+      <div class="card featured">
+        <div class="card-label">📊 RESULTADO SOBRE TU CUENTA</div>
+
+        <div style="display:flex; align-items:baseline; gap:12px; margin-bottom:14px">
+          <span id="mt-direction" style="font-family:'IBM Plex Mono'; font-size:24px; font-weight:700; color:var(--t2)">--</span>
+          <span style="font-size:11px; color:var(--t2)" id="mt-pair-label">--</span>
+        </div>
+
+        <!-- RESULTADO DESTACADO MODO 2: lotes recomendados -->
+        <div id="mt-lots-result" style="display:none; background:color-mix(in srgb, var(--purple) 12%, transparent); border:1px solid color-mix(in srgb, var(--purple) 30%, transparent); border-radius:6px; padding:12px; margin-bottom:10px">
+          <div style="font-size:10px; color:var(--purple); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:4px">📐 Lotes que tenés que poner en MetaTrader</div>
+          <div style="display:flex; align-items:baseline; gap:10px">
+            <span id="mt-lots-rec" style="font-family:'IBM Plex Mono'; font-size:32px; font-weight:700; color:var(--purple)">0.00</span>
+            <span style="font-size:12px; color:var(--t2)" id="mt-lots-rec-units">-- units</span>
+          </div>
+        </div>
+
+        <div style="background:color-mix(in srgb, var(--r) 10%, transparent); border:1px solid color-mix(in srgb, var(--r) 25%, transparent); border-radius:6px; padding:12px; margin-bottom:10px">
+          <div style="font-size:10px; color:var(--r); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:4px">⬇ Si toca el Stop Loss — ARRIESGÁS</div>
+          <div style="display:flex; align-items:baseline; gap:10px">
+            <span id="mt-risk-usd" style="font-family:'IBM Plex Mono'; font-size:28px; font-weight:700; color:var(--r)">$0.00</span>
+            <span id="mt-risk-pct" style="font-size:13px; color:var(--r)">0.00% de la cuenta</span>
+          </div>
+          <div id="mt-pips-sl" style="font-size:10px; color:var(--t2); margin-top:4px">-- pips de Stop Loss</div>
+        </div>
+
+        <div style="background:color-mix(in srgb, var(--g) 10%, transparent); border:1px solid color-mix(in srgb, var(--g) 25%, transparent); border-radius:6px; padding:12px; margin-bottom:10px">
+          <div style="font-size:10px; color:var(--g); letter-spacing:0.08em; text-transform:uppercase; margin-bottom:4px">⬆ Si llega al Take Profit — GANÁS</div>
+          <div style="display:flex; align-items:baseline; gap:10px">
+            <span id="mt-gain-usd" style="font-family:'IBM Plex Mono'; font-size:28px; font-weight:700; color:var(--g)">$0.00</span>
+            <span id="mt-gain-pct" style="font-size:13px; color:var(--g)">0.00% de la cuenta</span>
+          </div>
+          <div id="mt-pips-tp" style="font-size:10px; color:var(--t2); margin-top:4px">-- pips de Take Profit</div>
+        </div>
+
+        <div class="kv" style="margin-top:6px"><span class="k">Riesgo / Beneficio (RR)</span><span class="v gold" id="mt-rr" style="font-size:16px">--</span></div>
+        <div class="kv"><span class="k">Valor por pip</span><span class="v" id="mt-pip-val">--</span></div>
+        <div class="kv"><span class="k">Lotes / unidades</span><span class="v" id="mt-units-label">--</span></div>
+
+        <div id="mt-warn" style="display:none; margin-top:10px; padding:9px 12px; background:color-mix(in srgb, var(--gold) 12%, transparent); border-left:3px solid var(--gold); border-radius:4px; font-size:10.5px; color:var(--t); line-height:1.5"></div>
+      </div>
+    </div>
+
+    <!-- TABLA DE COMPARACIÓN POR LOTES -->
+    <div class="card">
+      <div class="card-label">📋 COMPARACIÓN RÁPIDA POR LOTES (con los precios de arriba)</div>
+      <div style="font-size:10px; color:var(--t2); margin-bottom:10px">Riesgo y ganancia para los lotajes más comunes de MetaTrader, usando el entry/SL/TP que cargaste.</div>
+      <div style="overflow-x:auto">
+        <table class="tbl">
+          <thead><tr>
+            <th>Lotes</th><th>Units</th><th>Riesgo USD</th><th>Riesgo %</th><th>Ganancia USD</th><th>RR</th>
+          </tr></thead>
+          <tbody id="mt-table-rows"><tr><td colspan="6" class="empty">Cargá entrada y SL arriba para ver la tabla</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -3008,6 +3275,334 @@ function renderNews() {
   });
   cont.innerHTML = html;
 }
+
+// ============== CALCULADORA DE RIESGO (v2.9) ==============
+// Cuenta OANDA en USD. Cálculo estilo MatchTrader.
+const CALC_PAIRS = {
+  'EUR_USD': { display:'EUR/USD', pip_value:0.0001, decimals:5, quote:'USD' },
+  'GBP_USD': { display:'GBP/USD', pip_value:0.0001, decimals:5, quote:'USD' },
+  'AUD_USD': { display:'AUD/USD', pip_value:0.0001, decimals:5, quote:'USD' },
+  'USD_CAD': { display:'USD/CAD', pip_value:0.0001, decimals:5, quote:'CAD' },
+  'USD_JPY': { display:'USD/JPY', pip_value:0.01,   decimals:3, quote:'JPY' },
+  'GBP_JPY': { display:'GBP/JPY', pip_value:0.01,   decimals:3, quote:'JPY' },
+  'EUR_JPY': { display:'EUR/JPY', pip_value:0.01,   decimals:3, quote:'JPY' },
+};
+
+// Núcleo del cálculo. Devuelve riesgo/ganancia en USD para la cuenta.
+function calcCompute(pairKey, entry, sl, tp, units, balance, usdjpy) {
+  const p = CALC_PAIRS[pairKey];
+  if (!p || !entry || !sl || !units) return null;
+  const distSL = Math.abs(entry - sl);
+  const distTP = tp ? Math.abs(tp - entry) : 0;
+  const pipsSL = distSL / p.pip_value;
+  const pipsTP = tp ? distTP / p.pip_value : 0;
+  let riesgoQuote = units * distSL;
+  let gananciaQuote = units * distTP;
+  let riesgoUSD, gananciaUSD;
+  if (p.quote === 'USD') {
+    riesgoUSD = riesgoQuote; gananciaUSD = gananciaQuote;
+  } else if (p.quote === 'JPY') {
+    // USD/JPY usa su propio entry para convertir; los cruces usan el USD/JPY ingresado
+    const convRate = (pairKey === 'USD_JPY') ? entry : (usdjpy || 160);
+    riesgoUSD = riesgoQuote / convRate; gananciaUSD = gananciaQuote / convRate;
+  } else if (p.quote === 'CAD') {
+    riesgoUSD = riesgoQuote / entry; gananciaUSD = gananciaQuote / entry;
+  }
+  // valor por pip en USD (1 pip de movimiento)
+  let pipValueUSD;
+  const pipMove = units * p.pip_value;
+  if (p.quote === 'USD') pipValueUSD = pipMove;
+  else if (p.quote === 'JPY') pipValueUSD = pipMove / ((pairKey === 'USD_JPY') ? entry : (usdjpy || 160));
+  else if (p.quote === 'CAD') pipValueUSD = pipMove / entry;
+  const rr = (riesgoUSD > 0 && tp) ? gananciaUSD / riesgoUSD : 0;
+  const riesgoPct = balance > 0 ? riesgoUSD / balance * 100 : 0;
+  const gananciaPct = balance > 0 ? gananciaUSD / balance * 100 : 0;
+  const direction = entry > sl ? 'BUY' : 'SELL';
+  return { direction, pipsSL, pipsTP, riesgoUSD, gananciaUSD, rr, riesgoPct, gananciaPct, pipValueUSD };
+}
+
+// Sincroniza el slider con el input de units
+function calcRangeSync(val) {
+  const u = document.getElementById('calc-units');
+  if (u) u.value = val;
+  calcUpdate();
+}
+function calcSetUnits(val) {
+  const u = document.getElementById('calc-units');
+  const r = document.getElementById('calc-units-range');
+  if (u) u.value = val;
+  if (r) { if (val > Number(r.max)) r.max = val; r.value = val; }
+  calcUpdate();
+}
+
+// Recalcula y pinta todo
+function calcUpdate() {
+  const pairKey = document.getElementById('calc-pair').value;
+  const p = CALC_PAIRS[pairKey];
+  const entry = parseFloat(document.getElementById('calc-entry').value);
+  const sl = parseFloat(document.getElementById('calc-sl').value);
+  const tp = parseFloat(document.getElementById('calc-tp').value);
+  const units = parseFloat(document.getElementById('calc-units').value);
+  const balance = parseFloat(document.getElementById('calc-balance').value) || 10000;
+  const usdjpy = parseFloat(document.getElementById('calc-usdjpy').value) || 160;
+
+  // mostrar campo USD/JPY solo para cruces JPY (no para USD/JPY ni los USD)
+  const wrap = document.getElementById('calc-usdjpy-wrap');
+  if (wrap) wrap.style.display = (pairKey === 'GBP_JPY' || pairKey === 'EUR_JPY') ? 'block' : 'none';
+
+  // sincronizar el slider si el valor cabe
+  const range = document.getElementById('calc-units-range');
+  if (range && units) { if (units > Number(range.max)) range.max = units; range.value = units; }
+
+  document.getElementById('calc-pair-label').textContent = p ? p.display : '--';
+  document.getElementById('calc-units-label').textContent = units ? units.toLocaleString('en-US') + ' units' : '--';
+
+  const res = calcCompute(pairKey, entry, sl, tp, units, balance, usdjpy);
+  const dirEl = document.getElementById('calc-direction');
+
+  if (!res) {
+    dirEl.textContent = '--'; dirEl.style.color = 'var(--t2)';
+    document.getElementById('calc-risk-usd').textContent = '$0.00';
+    document.getElementById('calc-risk-pct').textContent = '0.00% de la cuenta';
+    document.getElementById('calc-gain-usd').textContent = '$0.00';
+    document.getElementById('calc-gain-pct').textContent = '0.00% de la cuenta';
+    document.getElementById('calc-pips-sl').textContent = '-- pips de Stop Loss';
+    document.getElementById('calc-pips-tp').textContent = '-- pips de Take Profit';
+    document.getElementById('calc-rr').textContent = '--';
+    document.getElementById('calc-pip-val').textContent = '--';
+    document.getElementById('calc-warn').style.display = 'none';
+    document.getElementById('calc-table-rows').innerHTML = '<tr><td colspan="6" class="empty">Cargá entrada y SL arriba para ver la tabla</td></tr>';
+    return;
+  }
+
+  dirEl.textContent = res.direction;
+  dirEl.style.color = res.direction === 'BUY' ? 'var(--g)' : 'var(--r)';
+  document.getElementById('calc-risk-usd').textContent = '$' + res.riesgoUSD.toFixed(2);
+  document.getElementById('calc-risk-pct').textContent = res.riesgoPct.toFixed(2) + '% de la cuenta';
+  document.getElementById('calc-gain-usd').textContent = tp ? '$' + res.gananciaUSD.toFixed(2) : '$0.00';
+  document.getElementById('calc-gain-pct').textContent = tp ? res.gananciaPct.toFixed(2) + '% de la cuenta' : 'sin TP cargado';
+  document.getElementById('calc-pips-sl').textContent = res.pipsSL.toFixed(1) + ' pips de Stop Loss';
+  document.getElementById('calc-pips-tp').textContent = tp ? res.pipsTP.toFixed(1) + ' pips de Take Profit' : 'sin TP cargado';
+  document.getElementById('calc-rr').textContent = tp ? '1 : ' + res.rr.toFixed(2) : '--';
+  document.getElementById('calc-pip-val').textContent = '$' + res.pipValueUSD.toFixed(2) + ' / pip';
+
+  // Aviso si el riesgo supera el 2% (regla del sistema)
+  const warn = document.getElementById('calc-warn');
+  if (res.riesgoPct > 2) {
+    warn.style.display = 'block';
+    warn.innerHTML = '⚠️ <strong>Riesgo alto:</strong> estás arriesgando ' + res.riesgoPct.toFixed(2) + '% de la cuenta. El sistema TPDCM usa 1-1.2% por operación. Considerá bajar el lotaje.';
+  } else if (res.direction === 'BUY' && tp && tp < entry) {
+    warn.style.display = 'block';
+    warn.innerHTML = '⚠️ <strong>Revisá el TP:</strong> es una compra (BUY) pero el Take Profit está por debajo de la entrada.';
+  } else if (res.direction === 'SELL' && tp && tp > entry) {
+    warn.style.display = 'block';
+    warn.innerHTML = '⚠️ <strong>Revisá el TP:</strong> es una venta (SELL) pero el Take Profit está por encima de la entrada.';
+  } else {
+    warn.style.display = 'none';
+  }
+
+  // Tabla de comparación de lotajes
+  const lotajes = [1000, 5000, 10000, 25000, 50000, 100000, 200000];
+  const rows = lotajes.map(u => {
+    const r = calcCompute(pairKey, entry, sl, tp, u, balance, usdjpy);
+    if (!r) return '';
+    const hl = (u === units) ? ' style="background:color-mix(in srgb, var(--g) 8%, transparent)"' : '';
+    return '<tr' + hl + '>' +
+      '<td style="font-weight:600">' + u.toLocaleString('en-US') + '</td>' +
+      '<td style="color:var(--r)">$' + r.riesgoUSD.toFixed(2) + '</td>' +
+      '<td style="color:var(--r)">' + r.riesgoPct.toFixed(2) + '%</td>' +
+      '<td style="color:var(--g)">' + (tp ? '$' + r.gananciaUSD.toFixed(2) : '--') + '</td>' +
+      '<td style="color:var(--g)">' + (tp ? r.gananciaPct.toFixed(2) + '%' : '--') + '</td>' +
+      '<td style="color:var(--gold)">' + (tp ? '1:' + r.rr.toFixed(2) : '--') + '</td>' +
+      '</tr>';
+  }).join('');
+  document.getElementById('calc-table-rows').innerHTML = rows || '<tr><td colspan="6" class="empty">Cargá entrada y SL arriba</td></tr>';
+}
+
+// ============== CALCULADORA METATRADER (v2.9) ==============
+// Trabaja en LOTES. 1 lote estándar = 100,000 units. Cuenta en USD.
+const MT_PAIRS = {
+  'EUR_USD': { display:'EUR/USD', pip:0.0001, contract:100000, decimals:5, quote:'USD' },
+  'GBP_USD': { display:'GBP/USD', pip:0.0001, contract:100000, decimals:5, quote:'USD' },
+  'AUD_USD': { display:'AUD/USD', pip:0.0001, contract:100000, decimals:5, quote:'USD' },
+  'USD_CAD': { display:'USD/CAD', pip:0.0001, contract:100000, decimals:5, quote:'CAD' },
+  'USD_JPY': { display:'USD/JPY', pip:0.01,   contract:100000, decimals:3, quote:'JPY' },
+  'GBP_JPY': { display:'GBP/JPY', pip:0.01,   contract:100000, decimals:3, quote:'JPY' },
+  'EUR_JPY': { display:'EUR/JPY', pip:0.01,   contract:100000, decimals:3, quote:'JPY' },
+};
+
+let mtMode = 'lots'; // 'lots' = de lotes a riesgo | 'risk' = de %riesgo a lotes
+
+// Núcleo: dados los lotes, devuelve riesgo/ganancia en USD
+function mtCompute(pairKey, entry, sl, tp, lots, balance, usdjpy) {
+  const p = MT_PAIRS[pairKey];
+  if (!p || !entry || !sl || !lots) return null;
+  const units = lots * p.contract;
+  const distSL = Math.abs(entry - sl);
+  const distTP = tp ? Math.abs(tp - entry) : 0;
+  const pipsSL = distSL / p.pip;
+  const pipsTP = tp ? distTP / p.pip : 0;
+  let riesgoQ = units * distSL, gananciaQ = units * distTP;
+  let riesgoUSD, gananciaUSD, pipValUSD;
+  const pipMove = units * p.pip;
+  if (p.quote === 'USD') { riesgoUSD = riesgoQ; gananciaUSD = gananciaQ; pipValUSD = pipMove; }
+  else if (p.quote === 'JPY') {
+    const c = (pairKey === 'USD_JPY') ? entry : (usdjpy || 160);
+    riesgoUSD = riesgoQ / c; gananciaUSD = gananciaQ / c; pipValUSD = pipMove / c;
+  } else if (p.quote === 'CAD') {
+    riesgoUSD = riesgoQ / entry; gananciaUSD = gananciaQ / entry; pipValUSD = pipMove / entry;
+  }
+  const rr = (riesgoUSD > 0 && tp) ? gananciaUSD / riesgoUSD : 0;
+  return { units, pipsSL, pipsTP, riesgoUSD, gananciaUSD, pipValUSD, rr,
+    riesgoPct: balance > 0 ? riesgoUSD / balance * 100 : 0,
+    gananciaPct: balance > 0 ? gananciaUSD / balance * 100 : 0,
+    direction: entry > sl ? 'BUY' : 'SELL' };
+}
+
+// Modo 2: dado %riesgo deseado, calcula cuántos lotes
+function mtLotsForRisk(pairKey, entry, sl, riskPct, balance, usdjpy) {
+  const p = MT_PAIRS[pairKey];
+  if (!p || !entry || !sl || !riskPct || !balance) return null;
+  const distSL = Math.abs(entry - sl);
+  if (distSL <= 0) return null;
+  const riesgoUSDdeseado = balance * riskPct / 100;
+  let riesgoQuote;
+  if (p.quote === 'USD') riesgoQuote = riesgoUSDdeseado;
+  else if (p.quote === 'JPY') { const c = (pairKey === 'USD_JPY') ? entry : (usdjpy || 160); riesgoQuote = riesgoUSDdeseado * c; }
+  else if (p.quote === 'CAD') riesgoQuote = riesgoUSDdeseado * entry;
+  const units = riesgoQuote / distSL;
+  return { lots: units / p.contract, units };
+}
+
+function mtSetMode(mode) {
+  mtMode = mode;
+  document.getElementById('mt-lots-input').style.display = (mode === 'lots') ? 'block' : 'none';
+  document.getElementById('mt-risk-input').style.display = (mode === 'risk') ? 'block' : 'none';
+  document.getElementById('mt-lots-result').style.display = (mode === 'risk') ? 'block' : 'none';
+  // estilo de botones
+  const bl = document.getElementById('mt-mode-lots-btn');
+  const br = document.getElementById('mt-mode-risk-btn');
+  bl.classList.toggle('btn-g', mode === 'lots');
+  br.classList.toggle('btn-g', mode === 'risk');
+  mtUpdate();
+}
+
+function mtLotsRangeSync(val) {
+  const el = document.getElementById('mt-lots');
+  if (el) el.value = val;
+  mtUpdate();
+}
+function mtSetLots(val) {
+  const el = document.getElementById('mt-lots');
+  const r = document.getElementById('mt-lots-range');
+  if (el) el.value = val;
+  if (r) { if (val > Number(r.max)) r.max = val; r.value = val; }
+  mtUpdate();
+}
+function mtSetRisk(val) {
+  const el = document.getElementById('mt-riskpct');
+  if (el) el.value = val;
+  mtUpdate();
+}
+
+function mtUpdate() {
+  const pairKey = document.getElementById('mt-pair').value;
+  const p = MT_PAIRS[pairKey];
+  const entry = parseFloat(document.getElementById('mt-entry').value);
+  const sl = parseFloat(document.getElementById('mt-sl').value);
+  const tp = parseFloat(document.getElementById('mt-tp').value);
+  const balance = parseFloat(document.getElementById('mt-balance').value) || 10000;
+  const usdjpy = parseFloat(document.getElementById('mt-usdjpy').value) || 160;
+
+  // campo USD/JPY visible solo para cruces JPY
+  const wrap = document.getElementById('mt-usdjpy-wrap');
+  if (wrap) wrap.style.display = (pairKey === 'GBP_JPY' || pairKey === 'EUR_JPY') ? 'block' : 'none';
+
+  document.getElementById('mt-pair-label').textContent = p ? p.display : '--';
+
+  // determinar los lotes según el modo
+  let lots;
+  if (mtMode === 'risk') {
+    const riskPct = parseFloat(document.getElementById('mt-riskpct').value);
+    const lr = mtLotsForRisk(pairKey, entry, sl, riskPct, balance, usdjpy);
+    if (lr) {
+      lots = lr.lots;
+      document.getElementById('mt-lots-rec').textContent = lr.lots.toFixed(2);
+      document.getElementById('mt-lots-rec-units').textContent = Math.round(lr.units).toLocaleString('en-US') + ' units';
+    } else {
+      lots = null;
+      document.getElementById('mt-lots-rec').textContent = '0.00';
+      document.getElementById('mt-lots-rec-units').textContent = '-- units';
+    }
+  } else {
+    lots = parseFloat(document.getElementById('mt-lots').value);
+    const r = document.getElementById('mt-lots-range');
+    if (r && lots) { if (lots > Number(r.max)) r.max = lots; r.value = lots; }
+  }
+
+  const res = lots ? mtCompute(pairKey, entry, sl, tp, lots, balance, usdjpy) : null;
+  const dirEl = document.getElementById('mt-direction');
+
+  if (!res) {
+    dirEl.textContent = '--'; dirEl.style.color = 'var(--t2)';
+    document.getElementById('mt-risk-usd').textContent = '$0.00';
+    document.getElementById('mt-risk-pct').textContent = '0.00% de la cuenta';
+    document.getElementById('mt-gain-usd').textContent = '$0.00';
+    document.getElementById('mt-gain-pct').textContent = '0.00% de la cuenta';
+    document.getElementById('mt-pips-sl').textContent = '-- pips de Stop Loss';
+    document.getElementById('mt-pips-tp').textContent = '-- pips de Take Profit';
+    document.getElementById('mt-rr').textContent = '--';
+    document.getElementById('mt-pip-val').textContent = '--';
+    document.getElementById('mt-units-label').textContent = '--';
+    document.getElementById('mt-warn').style.display = 'none';
+    document.getElementById('mt-table-rows').innerHTML = '<tr><td colspan="6" class="empty">Cargá entrada y SL arriba para ver la tabla</td></tr>';
+    return;
+  }
+
+  dirEl.textContent = res.direction;
+  dirEl.style.color = res.direction === 'BUY' ? 'var(--g)' : 'var(--r)';
+  document.getElementById('mt-risk-usd').textContent = '$' + res.riesgoUSD.toFixed(2);
+  document.getElementById('mt-risk-pct').textContent = res.riesgoPct.toFixed(2) + '% de la cuenta';
+  document.getElementById('mt-gain-usd').textContent = tp ? '$' + res.gananciaUSD.toFixed(2) : '$0.00';
+  document.getElementById('mt-gain-pct').textContent = tp ? res.gananciaPct.toFixed(2) + '% de la cuenta' : 'sin TP cargado';
+  document.getElementById('mt-pips-sl').textContent = res.pipsSL.toFixed(1) + ' pips de Stop Loss';
+  document.getElementById('mt-pips-tp').textContent = tp ? res.pipsTP.toFixed(1) + ' pips de Take Profit' : 'sin TP cargado';
+  document.getElementById('mt-rr').textContent = tp ? '1 : ' + res.rr.toFixed(2) : '--';
+  document.getElementById('mt-pip-val').textContent = '$' + res.pipValUSD.toFixed(2) + ' / pip';
+  document.getElementById('mt-units-label').textContent = lots.toFixed(2) + ' lotes · ' + Math.round(res.units).toLocaleString('en-US') + ' units';
+
+  const warn = document.getElementById('mt-warn');
+  if (res.riesgoPct > 2.01) {
+    warn.style.display = 'block';
+    warn.innerHTML = '⚠️ <strong>Riesgo alto:</strong> estás arriesgando ' + res.riesgoPct.toFixed(2) + '% de la cuenta. El sistema TPDCM usa 1-1.2% por operación.';
+  } else if (res.direction === 'BUY' && tp && tp < entry) {
+    warn.style.display = 'block';
+    warn.innerHTML = '⚠️ <strong>Revisá el TP:</strong> es una compra (BUY) pero el Take Profit está por debajo de la entrada.';
+  } else if (res.direction === 'SELL' && tp && tp > entry) {
+    warn.style.display = 'block';
+    warn.innerHTML = '⚠️ <strong>Revisá el TP:</strong> es una venta (SELL) pero el Take Profit está por encima de la entrada.';
+  } else {
+    warn.style.display = 'none';
+  }
+
+  // tabla por lotes
+  const lotajes = [0.01, 0.05, 0.10, 0.25, 0.50, 1.00, 2.00];
+  const rows = lotajes.map(l => {
+    const r = mtCompute(pairKey, entry, sl, tp, l, balance, usdjpy);
+    if (!r) return '';
+    const hl = (Math.abs(l - lots) < 0.001) ? ' style="background:color-mix(in srgb, var(--purple) 10%, transparent)"' : '';
+    return '<tr' + hl + '>' +
+      '<td style="font-weight:600; color:var(--purple)">' + l.toFixed(2) + '</td>' +
+      '<td style="color:var(--t2)">' + Math.round(r.units).toLocaleString('en-US') + '</td>' +
+      '<td style="color:var(--r)">$' + r.riesgoUSD.toFixed(2) + '</td>' +
+      '<td style="color:var(--r)">' + r.riesgoPct.toFixed(2) + '%</td>' +
+      '<td style="color:var(--g)">' + (tp ? '$' + r.gananciaUSD.toFixed(2) : '--') + '</td>' +
+      '<td style="color:var(--gold)">' + (tp ? '1:' + r.rr.toFixed(2) : '--') + '</td>' +
+      '</tr>';
+  }).join('');
+  document.getElementById('mt-table-rows').innerHTML = rows || '<tr><td colspan="6" class="empty">Cargá entrada y SL arriba</td></tr>';
+}
+
 
 refreshAll();
 smartInitAnalysis();
