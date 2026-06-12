@@ -1771,6 +1771,14 @@ async def call_cognitive_layer(ict: dict, recent_history: list) -> Optional[Cogn
         if start == -1 or end == -1: raise ValueError('No JSON')
         parsed = json.loads(clean[start:end+1])
         parsed.pop('action', None)
+        if isinstance(parsed.get('narrative'), str):
+            parsed['narrative'] = parsed['narrative'][:500]
+        if isinstance(parsed.get('regime_assessment'), str):
+            parsed['regime_assessment'] = parsed['regime_assessment'][:150]
+        if isinstance(parsed.get('veto_reason'), str):
+            parsed['veto_reason'] = parsed['veto_reason'][:200]
+        if isinstance(parsed.get('anomalies'), list):
+            parsed['anomalies'] = parsed['anomalies'][:5]
         validation = CognitiveValidation(**parsed)
         cognitive_record(True)
         return validation
